@@ -100,6 +100,9 @@ resource "aws_lambda_function" "api" {
   timeout          = var.lambda_timeout
   memory_size      = 256
 
+  # Limit concurrency to avoid Bedrock throttling (10 parallel = ~10 cases/15s)
+  reserved_concurrent_executions = 10
+
   environment {
     variables = {
       BEDROCK_AGENT_ID            = var.bedrock_agent_id
