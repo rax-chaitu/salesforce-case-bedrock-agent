@@ -68,7 +68,7 @@ The target **Amazon Bedrock Agents** architecture is significantly simpler:
 │  │  Environment Variables:                                                                    │  │
 │  │  • AGENT_RUNTIME_ARN = arn:aws:bedrock-agentcore:...:runtime/salesforceagent_Agent-*     │  │
 │  │  • AGENT_QUALIFIER = DEV                                                                   │  │
-│  │  • BEDROCK_KNOWLEDGE_BASE_ID = TKYEX1S8ZP                                                 │  │
+│  │  • BEDROCK_KNOWLEDGE_BASE_ID = <KB_ID>                                                 │  │
 │  │  • KB_MODEL_ARN = amazon.nova-pro-v1:0                                                    │  │
 │  └──────────────────────────────────────────────────────────────────────────────────────────┘  │
 └────────────────────────────────────────┬────────────────────────────────────────────────────────┘
@@ -78,7 +78,7 @@ The target **Amazon Bedrock Agents** architecture is significantly simpler:
                     ▼                    ▼                    ▼
 ┌──────────────────────────┐ ┌──────────────────────┐ ┌──────────────────────────────────────────┐
 │   AgentCore Runtime      │ │   Knowledge Base     │ │        AgentCore Gateway                 │
-│   salesforceagent_Agent  │ │   TKYEX1S8ZP         │ │        salesforceagent-Gateway          │
+│   salesforceagent_Agent  │ │   <KB_ID>         │ │        salesforceagent-Gateway          │
 │   -7cR9676mLR            │ │                      │ │                                          │
 │                          │ │   Storage: S3 Vectors│ │   Protocol: MCP                         │
 │   ┌──────────────────┐   │ │   Embedding: Titan   │ │   Auth: Cognito JWT                     │
@@ -127,7 +127,7 @@ The target **Amazon Bedrock Agents** architecture is significantly simpler:
 | **AgentCore Runtime** | `salesforceagent_Agent-7cR9676mLR` | AI agent execution | Container + 149 lines |
 | **AgentCore Gateway** | `salesforceagent-Gateway` | MCP protocol handler | Terraform config |
 | **AgentCore Memory** | `salesforceagent_Memory` | 30-day conversation history | Terraform config |
-| **Knowledge Base** | `TKYEX1S8ZP` | Closed cases + KB articles | Manual setup |
+| **Knowledge Base** | `<KB_ID>` | Closed cases + KB articles | Manual setup |
 | **ECR Repository** | `bedrock-agentcore/salesforceagent` | Docker image storage | Dockerfile |
 | **Cognito** | `salesforceagent-CognitoUserPool` | OAuth for Gateway | Terraform config |
 | **API Gateway** | `salesforceagent-api` | REST API | 191 lines Terraform |
@@ -186,7 +186,7 @@ The target **Amazon Bedrock Agents** architecture is significantly simpler:
 │  Environment Variables:                                                                          │
 │  • BEDROCK_AGENT_ID = XXXXXXXXXX                                                                │
 │  • BEDROCK_AGENT_ALIAS_ID = XXXXXXXXXX                                                          │
-│  • BEDROCK_KNOWLEDGE_BASE_ID = TKYEX1S8ZP (reused!)                                            │
+│  • BEDROCK_KNOWLEDGE_BASE_ID = <KB_ID> (reused!)                                            │
 └────────────────────────────────────────┬────────────────────────────────────────────────────────┘
                                          │
                     ┌────────────────────┴────────────────────┐
@@ -194,7 +194,7 @@ The target **Amazon Bedrock Agents** architecture is significantly simpler:
                     ▼                                         ▼
 ┌──────────────────────────────────────────────┐ ┌──────────────────────────────────────────────┐
 │           Bedrock Agent                       │ │         Knowledge Base                       │
-│           salesforceagent                     │ │         TKYEX1S8ZP (REUSED)                 │
+│           salesforceagent                     │ │         <KB_ID> (REUSED)                 │
 │                                               │ │                                              │
 │   ┌───────────────────────────────────────┐  │ │   Storage: S3 Vectors                       │
 │   │  Agent Instructions                   │  │ │   Embedding: Titan v2                       │
@@ -203,7 +203,7 @@ The target **Amazon Bedrock Agents** architecture is significantly simpler:
 │   │  Foundation Model:                    │  │ │   • Closed Cases                            │
 │   │  amazon.nova-pro-v1:0                │◀─┼─┤   • KB Articles                             │
 │   │                                       │  │ │                                              │
-│   │  Knowledge Base: TKYEX1S8ZP          │──┼─▶│                                              │
+│   │  Knowledge Base: <KB_ID>          │──┼─▶│                                              │
 │   │  (directly attached)                  │  │ │                                              │
 │   └───────────────────────────────────────┘  │ └──────────────────────────────────────────────┘
 │                                               │
@@ -333,7 +333,7 @@ resource "aws_bedrockagent_agent" "salesforce_agent" {
 
 resource "aws_bedrockagent_agent_knowledge_base_association" "kb_association" {
   agent_id             = aws_bedrockagent_agent.salesforce_agent.agent_id
-  knowledge_base_id    = var.knowledge_base_id  # Reuse existing: TKYEX1S8ZP
+  knowledge_base_id    = var.knowledge_base_id  # Reuse existing: <KB_ID>
   description          = "Salesforce closed cases and knowledge articles"
   knowledge_base_state = "ENABLED"
 }
@@ -480,7 +480,7 @@ bedrock_agent_runtime = boto3.client("bedrock-agent-runtime", region_name="us-ea
 # Configuration from environment
 AGENT_ID = os.environ.get("BEDROCK_AGENT_ID")
 AGENT_ALIAS_ID = os.environ.get("BEDROCK_AGENT_ALIAS_ID")
-KNOWLEDGE_BASE_ID = os.environ.get("BEDROCK_KNOWLEDGE_BASE_ID", "TKYEX1S8ZP")
+KNOWLEDGE_BASE_ID = os.environ.get("BEDROCK_KNOWLEDGE_BASE_ID", "<KB_ID>")
 
 
 def lambda_handler(event, context):

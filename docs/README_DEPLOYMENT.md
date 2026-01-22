@@ -470,8 +470,8 @@ This deployment includes Bedrock Knowledge Base integration for intelligent case
 ### Configuration
 | Setting | Value |
 |---------|-------|
-| Knowledge Base ID | `USEHTNGNYY` |
-| Data Source ID | `P50K5C1SRF` |
+| Knowledge Base ID | `<KB_ID>` |
+| Data Source ID | `<DATASOURCE_ID>` |
 | S3 Bucket | `testgenralbucketsf1` |
 | Model | `amazon.nova-lite-v1:0` |
 
@@ -485,8 +485,8 @@ aws s3 cp salesforce_cases_full.txt s3://testgenralbucketsf1/
 
 # Sync Knowledge Base
 aws bedrock-agent start-ingestion-job \
-  --knowledge-base-id USEHTNGNYY \
-  --data-source-id P50K5C1SRF \
+  --knowledge-base-id <KB_ID> \
+  --data-source-id <DATASOURCE_ID> \
   --profile new-profile
 ```
 

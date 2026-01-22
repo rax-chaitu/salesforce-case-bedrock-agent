@@ -206,7 +206,7 @@ def search_knowledge_base(query: str) -> str:
 # Terraform - just associate the KB
 resource "aws_bedrockagent_agent_knowledge_base_association" "kb" {
   agent_id          = aws_bedrockagent_agent.agent.agent_id
-  knowledge_base_id = "TKYEX1S8ZP"
+  knowledge_base_id = "<KB_ID>"
   knowledge_base_state = "ENABLED"
 }
 # Done! Agent automatically searches KB when needed.
@@ -479,7 +479,7 @@ resource "aws_bedrockagent_agent_alias" "new_agent_dev" {
 
 | Component | Status |
 |-----------|--------|
-| Knowledge Base (TKYEX1S8ZP) | ✅ Reused as-is |
+| Knowledge Base (<KB_ID>) | ✅ Reused as-is |
 | API Gateway structure | ✅ Same endpoints |
 | Salesforce LWC | ✅ No changes needed |
 | S3 data sources | ✅ Same bucket |
@@ -571,14 +571,14 @@ resource "aws_bedrockagent_agent_alias" "new_agent_dev" {
 ```
 AGENT_RUNTIME_ARN=arn:aws:bedrock-agentcore:...:runtime/salesforceagent_Agent-*
 AGENT_QUALIFIER=DEV
-BEDROCK_KNOWLEDGE_BASE_ID=TKYEX1S8ZP
+BEDROCK_KNOWLEDGE_BASE_ID=<KB_ID>
 ```
 
 **Bedrock Agents:**
 ```
 BEDROCK_AGENT_ID=<agent-id>
 BEDROCK_AGENT_ALIAS_ID=<alias-id>
-BEDROCK_KNOWLEDGE_BASE_ID=TKYEX1S8ZP
+BEDROCK_KNOWLEDGE_BASE_ID=<KB_ID>
 ```
 
 ### Deploy Commands

@@ -4,9 +4,9 @@
 
 | Item | Value |
 |------|-------|
-| AWS Account | sandbox4 (914296863611) |
+| AWS Account | sandbox4 (<AWS_ACCOUNT_ID>) |
 | SF Org | UATDEC25 (UAT Sandbox) |
-| API Gateway | https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod |
+| API Gateway | https://<API_ID>.execute-api.us-east-1.amazonaws.com/prod |
 
 ## End-to-End Flow Test
 
@@ -40,13 +40,13 @@ sf data create record --sobject Case \
 
 ### 1. Health Check ✅
 ```bash
-curl https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod/health
+curl https://<API_ID>.execute-api.us-east-1.amazonaws.com/prod/health
 ```
 ```json
 {
   "status": "healthy",
   "service": "salesforceagent-dual-mode",
-  "agent_id": "PVCXCBCV4I",
+  "agent_id": "<AGENT_ID>",
   "salesforce_configured": true
 }
 ```

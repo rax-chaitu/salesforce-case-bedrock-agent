@@ -18,7 +18,7 @@ Implemented Salesforce OAuth 2.0 client credentials authentication in the Lambda
 **File:** `lambda/case_processor/salesforce_client.py`
 
 #### Changes Made:
-- **Hardcoded UAT Sandbox URL**: Changed default instance URL from empty string to `https://rax--uat.sandbox.my.salesforce.com`
+- **Hardcoded UAT Sandbox URL**: Changed default instance URL from empty string to `https://<YOUR_ORG>.sandbox.my.salesforce.com`
 - **Fixed OAuth Implementation**: Replaced manual OAuth token request with `simple-salesforce` library's built-in `SalesforceLogin` method
 - **Updated Imports**: Added `SalesforceLogin` to imports from `simple_salesforce`
 
@@ -42,7 +42,7 @@ self._sf = Salesforce(instance=instance, session_id=session_id)
 
 ### 2. Deployed Updated Lambda Function
 **Function Name:** `salesforceagent-api`  
-**Account:** 914296863611 (sandbox4)  
+**Account:** <AWS_ACCOUNT_ID> (sandbox4)  
 **Region:** us-east-1
 
 #### Deployment Method:
@@ -64,19 +64,19 @@ aws lambda update-function-code \
 **Last Modified:** 2026-01-22T13:45:57.000+0000
 
 ### 3. Tested Direct API Gateway Endpoints
-**API Gateway URL:** `https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod`
+**API Gateway URL:** `https://<API_ID>.execute-api.us-east-1.amazonaws.com/prod`
 
 #### Test Results:
 
 **✅ Health Endpoint - WORKING**
 ```bash
-curl https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod/health
+curl https://<API_ID>.execute-api.us-east-1.amazonaws.com/prod/health
 ```
 Response: Returns agent status, IDs, and timestamp
 
 **✅ Agent Invoke Endpoint - WORKING**
 ```bash
-curl -X POST https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod/agent/invoke \
+curl -X POST https://<API_ID>.execute-api.us-east-1.amazonaws.com/prod/agent/invoke \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Search for login issues", "session_id": "test-123"}'
 ```
@@ -84,7 +84,7 @@ Response: Bedrock Agent successfully processes prompts and returns analysis
 
 **✅ KB Search Endpoint - WORKING**
 ```bash
-curl -X POST https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod/kb/search \
+curl -X POST https://<API_ID>.execute-api.us-east-1.amazonaws.com/prod/kb/search \
   -H "Content-Type: application/json" \
   -d '{"query": "password reset", "max_results": 3}'
 ```
@@ -92,7 +92,7 @@ Response: Knowledge Base returns relevant closed cases
 
 **✅ Case Analyze Endpoint - WORKING**
 ```bash
-curl -X POST https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod/case/analyze \
+curl -X POST https://<API_ID>.execute-api.us-east-1.amazonaws.com/prod/case/analyze \
   -H "Content-Type: application/json" \
   -d '{"case_number": "12345", "subject": "Login issue", "description": "Cannot login", "priority": "High"}'
 ```
@@ -101,7 +101,7 @@ Response: Agent analyzes case and provides recommendations
 **Status:** All API endpoints working correctly. Bedrock Agent integration functional.
 
 ### 4. Sent Test Event to SQS
-**Queue URL:** `https://sqs.us-east-1.amazonaws.com/914296863611/salesforceagent-case-analysis`
+**Queue URL:** `https://sqs.us-east-1.amazonaws.com/<AWS_ACCOUNT_ID>/salesforceagent-case-analysis`
 
 #### Test Event Payload:
 ```json
@@ -109,8 +109,8 @@ Response: Agent analyzes case and provides recommendations
   "version": "0",
   "id": "test-event-123",
   "detail-type": "Case Created",
-  "source": "aws.partner/salesforce.com/00DgP0000023yjFUAQ/0YLgP0000005yDFWAY",
-  "account": "914296863611",
+  "source": "aws.partner/salesforce.com/<SF_ORG_ID>/<EVENT_RELAY_ID>",
+  "account": "<AWS_ACCOUNT_ID>",
   "time": "2026-01-22T13:50:00Z",
   "region": "us-east-1",
   "detail": {
@@ -136,12 +136,12 @@ Response: Agent analyzes case and provides recommendations
 ## Issues Faced & Fixed
 
 ### Issue 1: Wrong AWS Account Credentials
-**Problem:** Terraform plan failed because we were using credentials for account `371363084812` but resources exist in account `914296863611` (sandbox4).
+**Problem:** Terraform plan failed because we were using credentials for account `371363084812` but resources exist in account `<AWS_ACCOUNT_ID>` (sandbox4).
 
 **Error:**
 ```
 AccessDeniedException: User: arn:aws:iam::371363084812:user/AWS_CLI_Chaitanya 
-is not authorized to perform: bedrock:GetAgent on resource in account 914296863611
+is not authorized to perform: bedrock:GetAgent on resource in account <AWS_ACCOUNT_ID>
 ```
 
 **Solution:** Bypassed Terraform and used AWS CLI with `--profile sandbox4` to directly update Lambda function.
@@ -261,18 +261,18 @@ zip -r /tmp/lambda_update.zip . -x "*.pyc" -x "__pycache__/*" -x ".pytest_cache/
 
 ### Lambda Environment Variables (Current)
 ```
-BEDROCK_AGENT_ID=PVCXCBCV4I
-BEDROCK_AGENT_ALIAS_ID=A7DTAVSVLJ
-BEDROCK_KNOWLEDGE_BASE_ID=TKYEX1S8ZP
-SALESFORCE_INSTANCE_URL=https://rax--uat.sandbox.my.salesforce.com
-SALESFORCE_CLIENT_ID=3MVG9oD5dheCKJmnu__qyWw0zs75_PBFRCGa3Dy1a5MrjSsiNEWJUpSRp3TK1vXWaFTBm1.aknc36wtUUV44n
-SALESFORCE_CLIENT_SECRET_ARN=arn:aws:secretsmanager:us-east-1:914296863611:secret:salesforceagent/salesforce/client-secret-BN4hUG
+BEDROCK_AGENT_ID=<AGENT_ID>
+BEDROCK_AGENT_ALIAS_ID=<ALIAS_ID>
+BEDROCK_KNOWLEDGE_BASE_ID=<KB_ID>
+SALESFORCE_INSTANCE_URL=https://<YOUR_ORG>.sandbox.my.salesforce.com
+SALESFORCE_CLIENT_ID=<CONSUMER_KEY>
+SALESFORCE_CLIENT_SECRET_ARN=arn:aws:secretsmanager:us-east-1:<AWS_ACCOUNT_ID>:secret:salesforceagent/salesforce/client-secret-<SECRET_SUFFIX>
 ```
 
 ### Salesforce Connected App Details
-- **Instance:** https://rax--uat.sandbox.my.salesforce.com
-- **Org ID:** 00DgP0000023yjFUAQ
-- **Consumer Key:** 3MVG9oD5dheCKJmnu__qyWw0zs75_PBFRCGa3Dy1a5MrjSsiNEWJUpSRp3TK1vXWaFTBm1.aknc36wtUUV44n
+- **Instance:** https://<YOUR_ORG>.sandbox.my.salesforce.com
+- **Org ID:** <SF_ORG_ID>
+- **Consumer Key:** <CONSUMER_KEY>
 - **Consumer Secret:** Stored in AWS Secrets Manager
 
 ---
@@ -295,7 +295,7 @@ aws logs tail /aws/lambda/salesforceagent-api \
 
 # 3. Check SQS queue metrics
 aws sqs get-queue-attributes \
-  --queue-url https://sqs.us-east-1.amazonaws.com/914296863611/salesforceagent-case-analysis \
+  --queue-url https://sqs.us-east-1.amazonaws.com/<AWS_ACCOUNT_ID>/salesforceagent-case-analysis \
   --attribute-names All \
   --profile sandbox4 \
   --region us-east-1
@@ -304,13 +304,13 @@ aws sqs get-queue-attributes \
 ### Priority 2: Fix Missing Dependencies (If Needed)
 ```bash
 # 1. Install dependencies
-cd /Users/venk7903/Documents/KIRO_Python_Projects/AWS_SANDBOX2_OnlyBedrock/lambda/case_processor
+cd /Users/<USER>/Documents/KIRO_Python_Projects/AWS_SANDBOX2_OnlyBedrock/lambda/case_processor
 rm -rf package
 mkdir -p package
 pip install -r requirements.txt -t package/ --platform manylinux2014_x86_64 --only-binary=:all:
 
 # 2. Create proper zip with dependencies
-cd /Users/venk7903/Documents/KIRO_Python_Projects/AWS_SANDBOX2_OnlyBedrock/lambda/case_processor
+cd /Users/<USER>/Documents/KIRO_Python_Projects/AWS_SANDBOX2_OnlyBedrock/lambda/case_processor
 zip -r /tmp/lambda_complete.zip . -x "*.pyc" -x "__pycache__/*" -x ".pytest_cache/*"
 
 # 3. Update Lambda
@@ -324,7 +324,7 @@ aws lambda update-function-code \
 ### Priority 3: Test Direct API Endpoints
 ```bash
 # Test all endpoints to verify Bedrock Agent is working
-API_URL="https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod"
+API_URL="https://<API_ID>.execute-api.us-east-1.amazonaws.com/prod"
 
 # Health check
 curl "${API_URL}/health"
@@ -349,7 +349,7 @@ curl -X POST "${API_URL}/case/analyze" \
 ```bash
 # Send test event to SQS
 aws sqs send-message \
-  --queue-url https://sqs.us-east-1.amazonaws.com/914296863611/salesforceagent-case-analysis \
+  --queue-url https://sqs.us-east-1.amazonaws.com/<AWS_ACCOUNT_ID>/salesforceagent-case-analysis \
   --message-body file:///tmp/test_case_event.json \
   --profile sandbox4 \
   --region us-east-1
@@ -358,7 +358,7 @@ aws sqs send-message \
 aws logs tail /aws/lambda/salesforceagent-api \
   --follow \
   --profile sandbox4 \
-  --region us-east-1914296863611/salesforceagent-case-analysis \
+  --region us-east-1<AWS_ACCOUNT_ID>/salesforceagent-case-analysis \
   --message-body file:///tmp/test_case_event.json \
   --profile sandbox4 \
   --region us-east-1
@@ -371,7 +371,7 @@ aws logs tail /aws/lambda/salesforceagent-api \
 ```
 
 ### Priority 5: Verify Salesforce Case Update
-1. Log into Salesforce UAT: https://rax--uat.sandbox.my.salesforce.com
+1. Log into Salesforce UAT: https://<YOUR_ORG>.sandbox.my.salesforce.com
 2. Navigate to Case `00001234` or ID `500Pe00000s9XyXIAU`
 3. Check if custom fields were updated:
    - AI_Analysis__c
@@ -416,12 +416,12 @@ export AWS_REGION=us-east-1
 
 # Verify you're in the right account
 aws sts get-caller-identity
-# Should show Account: 914296863611
+# Should show Account: <AWS_ACCOUNT_ID>
 ```
 
 ### Step 2: Deploy Lambda Function with Dependencies
 ```bash
-cd /Users/venk7903/Documents/KIRO_Python_Projects/AWS_SANDBOX2_OnlyBedrock/lambda/case_processor
+cd /Users/<USER>/Documents/KIRO_Python_Projects/AWS_SANDBOX2_OnlyBedrock/lambda/case_processor
 
 # Clean and install dependencies
 rm -rf package
@@ -449,7 +449,7 @@ echo "✅ Lambda deployed successfully"
 
 ### Step 3: Test API Endpoints Directly
 ```bash
-API_URL="https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod"
+API_URL="https://<API_ID>.execute-api.us-east-1.amazonaws.com/prod"
 
 # 1. Health check
 echo "Testing health endpoint..."
@@ -476,8 +476,8 @@ cat > /tmp/test_case_event.json << 'EOF'
   "version": "0",
   "id": "test-event-$(date +%s)",
   "detail-type": "Case Created",
-  "source": "aws.partner/salesforce.com/00DgP0000023yjFUAQ/0YLgP0000005yDFWAY",
-  "account": "914296863611",
+  "source": "aws.partner/salesforce.com/<SF_ORG_ID>/<EVENT_RELAY_ID>",
+  "account": "<AWS_ACCOUNT_ID>",
   "time": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "region": "us-east-1",
   "detail": {
@@ -497,7 +497,7 @@ EOF
 
 # Send to SQS
 aws sqs send-message \
-  --queue-url https://sqs.us-east-1.amazonaws.com/914296863611/salesforceagent-case-analysis \
+  --queue-url https://sqs.us-east-1.amazonaws.com/<AWS_ACCOUNT_ID>/salesforceagent-case-analysis \
   --message-body file:///tmp/test_case_event.json \
   --profile sandbox4 \
   --region us-east-1
@@ -521,7 +521,7 @@ aws lambda get-function \
 
 # Check SQS queue depth
 aws sqs get-queue-attributes \
-  --queue-url https://sqs.us-east-1.amazonaws.com/914296863611/salesforceagent-case-analysis \
+  --queue-url https://sqs.us-east-1.amazonaws.com/<AWS_ACCOUNT_ID>/salesforceagent-case-analysis \
   --attribute-names ApproximateNumberOfMessages,ApproximateNumberOfMessagesNotVisible \
   --profile sandbox4 \
   --region us-east-1
@@ -536,7 +536,7 @@ aws logs filter-log-events \
 ```
 
 ### Step 6: Verify in Salesforce
-1. Login to UAT: https://rax--uat.sandbox.my.salesforce.com
+1. Login to UAT: https://<YOUR_ORG>.sandbox.my.salesforce.com
 2. Navigate to Cases
 3. Find test case by Case Number
 4. Check custom fields:
@@ -589,7 +589,7 @@ cat /tmp/lambda_response.json | jq .
 - **Simple Salesforce Docs:** https://github.com/simple-salesforce/simple-salesforce
 - **Salesforce OAuth 2.0:** https://help.salesforce.com/s/articleView?id=sf.remoteaccess_oauth_flows.htm
 - **AWS Lambda Python:** https://docs.aws.amazon.com/lambda/latest/dg/python-handler.html
-- **Terraform State:** `/Users/venk7903/Documents/KIRO_Python_Projects/AWS_SANDBOX2_OnlyBedrock/terraform/terraform.tfstate`
+- **Terraform State:** `/Users/<USER>/Documents/KIRO_Python_Projects/AWS_SANDBOX2_OnlyBedrock/terraform/terraform.tfstate`
 
 ---
 
@@ -601,13 +601,13 @@ export AWS_PROFILE=sandbox4
 export AWS_REGION=us-east-1
 
 # Project Directory
-cd /Users/venk7903/Documents/KIRO_Python_Projects/AWS_SANDBOX2_OnlyBedrock
+cd /Users/<USER>/Documents/KIRO_Python_Projects/AWS_SANDBOX2_OnlyBedrock
 
 # Lambda Function Name
 FUNCTION_NAME=salesforceagent-api
 
 # SQS Queue URL
-QUEUE_URL=https://sqs.us-east-1.amazonaws.com/914296863611/salesforceagent-case-analysis
+QUEUE_URL=https://sqs.us-east-1.amazonaws.com/<AWS_ACCOUNT_ID>/salesforceagent-case-analysis
 
 # Check Lambda logs
 aws logs tail /aws/lambda/$FUNCTION_NAME --since 1h --profile sandbox4

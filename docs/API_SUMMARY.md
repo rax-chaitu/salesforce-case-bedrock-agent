@@ -27,7 +27,7 @@ AGENT_QUALIFIER=DEV
 
 ### 2. Run Clean API
 ```bash
-cd /Users/venk7903/Documents/VS_Python_Projects/AWS_SANBOX1_AGENTCORE/salesforceagent/api
+cd /Users/<USER>/Documents/VS_Python_Projects/AWS_SANBOX1_AGENTCORE/salesforceagent/api
 AWS_PROFILE=chaituawssb1 python app_clean.py
 ```
 

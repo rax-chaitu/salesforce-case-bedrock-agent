@@ -22,7 +22,7 @@
 4. Add data source:
    - Create S3 bucket or use existing
    - Upload formatted case data (see Data Preparation below)
-5. **Copy the Knowledge Base ID** (e.g., `TKYEX1S8ZP`)
+5. **Copy the Knowledge Base ID** (e.g., `<KB_ID>`)
 6. **Copy the S3 bucket name** for data source
 
 ### Step 2: Prepare Case Data for KB
@@ -80,7 +80,7 @@ aws_region        = "us-east-1"
 aws_profile       = "YOUR_AWS_PROFILE"  # e.g., sandbox4
 
 # From Step 1
-knowledge_base_id = "TKYEX1S8ZP"  # Your KB ID
+knowledge_base_id = "<KB_ID>"  # Your KB ID
 
 # Agent config
 foundation_model   = "amazon.nova-pro-v1:0"
@@ -183,7 +183,7 @@ Save these values:
 # Extract the event source name (everything after event-source/)
 
 export AWS_PROFILE=YOUR_PROFILE
-export EVENT_SOURCE="aws.partner/salesforce.com/00DgP0000023yjFUAQ/0YLgP0000005yDFWAY"
+export EVENT_SOURCE="aws.partner/salesforce.com/<SF_ORG_ID>/<EVENT_RELAY_ID>"
 
 # Create event bus
 aws events create-event-bus \
@@ -200,7 +200,7 @@ vim terraform.tfvars
 
 Update:
 ```hcl
-salesforce_event_source = "aws.partner/salesforce.com/00DgP0000023yjFUAQ/0YLgP0000005yDFWAY"
+salesforce_event_source = "aws.partner/salesforce.com/<SF_ORG_ID>/<EVENT_RELAY_ID>"
 ```
 
 Apply:

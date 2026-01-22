@@ -4,11 +4,11 @@
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| Bedrock Agent | ✅ PREPARED | ID: PVCXCBCV4I, Model: amazon.nova-pro-v1:0 |
-| DEV Alias | ✅ PREPARED | ID: A7DTAVSVLJ |
-| Knowledge Base | ✅ Active | ID: TKYEX1S8ZP, Embeddings: Titan v2 |
+| Bedrock Agent | ✅ PREPARED | ID: <AGENT_ID>, Model: amazon.nova-pro-v1:0 |
+| DEV Alias | ✅ PREPARED | ID: <ALIAS_ID> |
+| Knowledge Base | ✅ Active | ID: <KB_ID>, Embeddings: Titan v2 |
 | Lambda Function | ✅ Active | salesforceagent-api, 256MB, 300s timeout |
-| API Gateway | ✅ Active | https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod |
+| API Gateway | ✅ Active | https://<API_ID>.execute-api.us-east-1.amazonaws.com/prod |
 | SQS Queue | ✅ Active | salesforceagent-case-analysis |
 | EventBridge Rule | ✅ Active | Listening to Salesforce events |
 
@@ -49,7 +49,7 @@ Check if Platform Event was published when case was created:
 ```bash
 # Check SQS queue for messages
 aws sqs get-queue-attributes \
-  --queue-url https://sqs.us-east-1.amazonaws.com/914296863611/salesforceagent-case-analysis \
+  --queue-url https://sqs.us-east-1.amazonaws.com/<AWS_ACCOUNT_ID>/salesforceagent-case-analysis \
   --attribute-names ApproximateNumberOfMessages \
   --profile sandbox4
 ```

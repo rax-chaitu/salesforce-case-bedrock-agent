@@ -96,12 +96,12 @@ aws secretsmanager create-secret \
 **Solution**: Update alias to use latest prepared version:
 ```bash
 # Check current version
-aws bedrock-agent get-agent --agent-id PVCXCBCV4I --query 'agent.agentVersion'
+aws bedrock-agent get-agent --agent-id <AGENT_ID> --query 'agent.agentVersion'
 
 # Update alias to use version with KB
 aws bedrock-agent update-agent-alias \
-  --agent-id PVCXCBCV4I \
-  --agent-alias-id LTXGEQVZ2P \
+  --agent-id <AGENT_ID> \
+  --agent-alias-id <DEV_ALIAS_ID> \
   --agent-alias-name DEV \
   --routing-configuration '[{"agentVersion":"6"}]'
 ```
@@ -112,20 +112,20 @@ aws bedrock-agent update-agent-alias \
 
 | Component | Value |
 |-----------|-------|
-| AWS Account | 914296863611 |
+| AWS Account | <AWS_ACCOUNT_ID> |
 | AWS Profile | sandbox4 |
 | AWS Region | us-east-1 |
-| Salesforce Instance | https://rax--uat.sandbox.my.salesforce.com |
+| Salesforce Instance | https://<YOUR_ORG>.sandbox.my.salesforce.com |
 | Salesforce Username | sfdc_tes_admin@rackspace.com.uat |
 | SF Org Alias | UATDEC25 |
-| Consumer Key | 3MVG9oD5dheCKJmnu__qyWw0zs75_PBFRCGa3Dy1a5MrjSsiNEWJUpSRp3TK1vXWaFTBm1.aknc36wtUUV44n |
-| Bedrock Agent ID | PVCXCBCV4I |
-| Bedrock Agent Alias (DEV) | LTXGEQVZ2P |
-| Knowledge Base ID | TKYEX1S8ZP |
-| Data Source ID | VRYU906VZJ |
+| Consumer Key | <CONSUMER_KEY>.aknc36wtUUV44n |
+| Bedrock Agent ID | <AGENT_ID> |
+| Bedrock Agent Alias (DEV) | <DEV_ALIAS_ID> |
+| Knowledge Base ID | <KB_ID> |
+| Data Source ID | <DATASOURCE_ID> |
 | SQS Queue | salesforceagent-case-analysis |
-| API Gateway | https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod |
-| Private Key ARN | arn:aws:secretsmanager:us-east-1:914296863611:secret:salesforceagent/salesforce/jwt-private-key-2KZifp |
+| API Gateway | https://<API_ID>.execute-api.us-east-1.amazonaws.com/prod |
+| Private Key ARN | arn:aws:secretsmanager:us-east-1:<AWS_ACCOUNT_ID>:secret:salesforceagent/salesforce/jwt-private-key-<SECRET_SUFFIX> |
 
 ---
 
@@ -164,7 +164,7 @@ Publishes Integration_Event__e on Case insert with:
 - **Name**: AWS_Sandbox4_Case_AI
 - **Channel**: Case_AI_Analysis_Channel__chn
 - **State**: Must be `RUN` (start via Setup → Event Relay)
-- **Partner Event Bus**: aws.partner/salesforce.com/00DgP0000023yjFUAQ/0YLgP0000005yDFWAY
+- **Partner Event Bus**: aws.partner/salesforce.com/<SF_ORG_ID>/<EVENT_RELAY_ID>
 
 ---
 
@@ -173,7 +173,7 @@ Publishes Integration_Event__e on Case insert with:
 ### Test Lambda Health
 ```bash
 eval $(aws configure export-credentials --profile sandbox4 --format env)
-curl https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod/health
+curl https://<API_ID>.execute-api.us-east-1.amazonaws.com/prod/health
 ```
 
 ### Create Test Case in Salesforce
@@ -200,14 +200,14 @@ aws lambda update-function-code --function-name salesforceagent-api --zip-file f
 ### Sync Knowledge Base
 ```bash
 eval $(aws configure export-credentials --profile sandbox4 --format env)
-aws bedrock-agent start-ingestion-job --knowledge-base-id TKYEX1S8ZP --data-source-id VRYU906VZJ
+aws bedrock-agent start-ingestion-job --knowledge-base-id <KB_ID> --data-source-id <DATASOURCE_ID>
 ```
 
 ### Check SQS Queue
 ```bash
 eval $(aws configure export-credentials --profile sandbox4 --format env)
 aws sqs get-queue-attributes \
-  --queue-url https://sqs.us-east-1.amazonaws.com/914296863611/salesforceagent-case-analysis \
+  --queue-url https://sqs.us-east-1.amazonaws.com/<AWS_ACCOUNT_ID>/salesforceagent-case-analysis \
   --attribute-names ApproximateNumberOfMessages,ApproximateNumberOfMessagesNotVisible
 ```
 
@@ -215,7 +215,7 @@ aws sqs get-queue-attributes \
 ```bash
 eval $(aws configure export-credentials --profile sandbox4 --format env)
 aws sqs send-message \
-  --queue-url https://sqs.us-east-1.amazonaws.com/914296863611/salesforceagent-case-analysis \
+  --queue-url https://sqs.us-east-1.amazonaws.com/<AWS_ACCOUNT_ID>/salesforceagent-case-analysis \
   --message-body '{"version":"0","id":"test","detail-type":"Case Created","source":"test","detail":{"payload":{"Record_Id__c":"500gP00000CknWtQAJ","Payload__c":"{\"Case_Number__c\":\"00151191\",\"Subject__c\":\"Test\",\"Description__c\":\"Testing\",\"Type__c\":\"Problem\",\"Priority__c\":\"High\"}"}}}'
 ```
 

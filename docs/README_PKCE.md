@@ -64,8 +64,8 @@ Create `.env` file:
 
 ```bash
 # Salesforce PKCE Configuration
-SF_CLIENT_ID=3MVG9XhRuzJUtKtDuUFI7ZxAn0lxqsw0ebcAc7cOqnOHZzsnU37o7qCJnMPkPPQ1Gw_t0ms0AC53eQWrmDIcD
-SF_INSTANCE_URL=https://rax--inttest.sandbox.my.salesforce.com
+SF_CLIENT_ID=<CONSUMER_KEY>
+SF_INSTANCE_URL=https://<YOUR_ORG>.sandbox.my.salesforce.com
 SF_REDIRECT_URI=http://localhost:8000/oauth/callback
 
 # AWS AgentCore Configuration
@@ -105,7 +105,7 @@ curl -X GET "http://localhost:8000/oauth/authorize"
 **Response:**
 ```json
 {
-  "authorization_url": "https://rax--inttest.sandbox.my.salesforce.com/services/oauth2/authorize?response_type=code&client_id=3MVG9...&redirect_uri=http%3A//localhost%3A8000/oauth/callback&code_challenge=xyz...&code_challenge_method=S256&scope=api+refresh_token+full&state=abc...",
+  "authorization_url": "https://<YOUR_ORG>.sandbox.my.salesforce.com/services/oauth2/authorize?response_type=code&client_id=<CONSUMER_KEY>...&redirect_uri=http%3A//localhost%3A8000/oauth/callback&code_challenge=xyz...&code_challenge_method=S256&scope=api+refresh_token+full&state=abc...",
   "session_id": "550e8400-e29b-41d4-a716-446655440000",
   "instructions": [
     "1. Visit the authorization_url in your browser",
@@ -145,7 +145,7 @@ curl -X GET "http://localhost:8000/salesforce/cases?access_token=YOUR_ACCESS_TOK
 curl -X POST "http://localhost:8000/salesforce/analyze-case" \
   -H "Content-Type: application/json" \
   -d '{
-    "case_id": "5004U000012A3bSQAS",
+    "case_id": "<CASE_ID>",
     "access_token": "YOUR_ACCESS_TOKEN"
   }'
 ```
@@ -158,7 +158,7 @@ curl -X POST "http://localhost:8000/salesforce/analyze-case" \
 curl -X POST "http://localhost:8000/salesforce/escalation-check" \
   -H "Content-Type: application/json" \
   -d '{
-    "case_id": "5004U000012A3bSQAS",
+    "case_id": "<CASE_ID>",
     "access_token": "YOUR_ACCESS_TOKEN"
   }'
 ```

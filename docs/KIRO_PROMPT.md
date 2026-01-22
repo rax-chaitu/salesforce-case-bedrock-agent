@@ -1,23 +1,23 @@
 # KIRO Initial Prompt - Salesforce Bedrock Agent
 
 ## Project Context
-- **Location**: /Users/venk7903/Documents/KIRO_Python_Projects/AWS_SANDBOX2_OnlyBedrock
-- **AWS Account**: sandbox4 (914296863611)
+- **Location**: /Users/<USER>/Documents/KIRO_Python_Projects/AWS_SANDBOX2_OnlyBedrock
+- **AWS Account**: sandbox4 (<AWS_ACCOUNT_ID>)
 - **Status**: ✅ Successfully deployed on January 22, 2026
 
 ## Current Architecture
 - **Standard Bedrock Agent** (NOT AgentCore) - simplified architecture
 - Lambda handler: `lambda_function.py` (~150 lines)
 - Terraform files in `terraform/` folder
-- Knowledge Base ID: `TKYEX1S8ZP` (already exists)
+- Knowledge Base ID: `<KB_ID>` (already exists)
 
 ## Deployed Resources
 | Resource | Value |
 |----------|-------|
-| API Gateway URL | `https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod` |
-| Bedrock Agent ID | `PVCXCBCV4I` |
-| DEV Alias ID | `A7DTAVSVLJ` |
-| PROD Alias ID | `RCRJ9TT1KX` |
+| API Gateway URL | `https://<API_ID>.execute-api.us-east-1.amazonaws.com/prod` |
+| Bedrock Agent ID | `<AGENT_ID>` |
+| DEV Alias ID | `<ALIAS_ID>` |
+| PROD Alias ID | `<PROD_ALIAS_ID>` |
 | Lambda Function | `salesforceagent-api` |
 
 ## API Endpoints
@@ -31,7 +31,7 @@
 ### Before running Terraform:
 ```bash
 eval "$(aws configure export-credentials --profile sandbox4 --format env)"
-cd /Users/venk7903/Documents/KIRO_Python_Projects/AWS_SANDBOX2_OnlyBedrock/terraform
+cd /Users/<USER>/Documents/KIRO_Python_Projects/AWS_SANDBOX2_OnlyBedrock/terraform
 ```
 
 ### Common Commands:
@@ -43,7 +43,7 @@ terraform plan
 terraform apply
 
 # Test endpoints
-curl https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod/health
+curl https://<API_ID>.execute-api.us-east-1.amazonaws.com/prod/health
 ```
 
 ## Potential Next Steps

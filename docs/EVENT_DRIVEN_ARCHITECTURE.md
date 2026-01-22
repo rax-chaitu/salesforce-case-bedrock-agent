@@ -59,11 +59,11 @@ When a Case is created in Salesforce:
                                         │
                                         ▼
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                              AWS (914296863611 - sandbox4)                               │
+│                              AWS (<AWS_ACCOUNT_ID> - sandbox4)                               │
 │                                                                                          │
 │  ┌──────────────────────────────────────────────────────────────────────────────────┐  │
 │  │                         Amazon EventBridge                                         │  │
-│  │  Partner Event Source: aws.partner/salesforce.com/00DgP0000023yjFUAQ/...          │  │
+│  │  Partner Event Source: aws.partner/salesforce.com/<SF_ORG_ID>/...          │  │
 │  │                                                                                    │  │
 │  │  Rule: case-created-rule                                                          │  │
 │  │  Pattern: {                                                                        │  │
@@ -107,7 +107,7 @@ When a Case is created in Salesforce:
 │               ▼               ▼                   ▼                                     │
 │  ┌─────────────────────┐ ┌─────────────────┐ ┌─────────────────────────────────┐       │
 │  │   Bedrock Agent     │ │ Knowledge Base  │ │   Salesforce API (Callback)    │       │
-│  │   salesforceagent   │ │ TKYEX1S8ZP      │ │   • Update Case fields         │       │
+│  │   salesforceagent   │ │ <KB_ID>      │ │   • Update Case fields         │       │
 │  │                     │ │                 │ │   • Add Case Comment            │       │
 │  │   Model:            │ │ Content:        │ │   • Trigger email workflow      │       │
 │  │   amazon.nova-pro   │ │ • Closed Cases  │ │                                 │       │
@@ -488,7 +488,7 @@ curl -s -X POST "${API_URL}/case/analyze" \
 
 # Check SQS queue depth (after event-driven infra deployed)
 aws sqs get-queue-attributes \
-  --queue-url https://sqs.us-east-1.amazonaws.com/914296863611/case-analysis-queue \
+  --queue-url https://sqs.us-east-1.amazonaws.com/<AWS_ACCOUNT_ID>/case-analysis-queue \
   --attribute-names ApproximateNumberOfMessages \
   --profile sandbox4
 ```
