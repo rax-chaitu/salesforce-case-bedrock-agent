@@ -102,22 +102,24 @@ response = requests.post(f"{login_url}/services/oauth2/token", data={
 
 ---
 
-## Current Deployment (sandbox4)
+## Current Deployment
 
 | Resource | Value |
 |----------|-------|
-| AWS Account | 914296863611 |
-| Bedrock Agent ID | PVCXCBCV4I |
-| Agent Alias (DEV) | LTXGEQVZ2P |
-| Knowledge Base ID | TKYEX1S8ZP |
-| Data Source ID | VRYU906VZJ |
-| API Gateway | https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod |
-| SQS Queue | salesforceagent-case-analysis |
-| Lambda Function | salesforceagent-api |
-| SF Instance | https://rax--uat.sandbox.my.salesforce.com |
-| SF Org Alias | UATDEC25 |
-| Consumer Key | 3MVG9oD5dheCKJmnu__qyWw0zs75... |
-| Private Key ARN | arn:aws:secretsmanager:us-east-1:914296863611:secret:salesforceagent/salesforce/jwt-private-key-2KZifp |
+| AWS Account | `<YOUR_AWS_ACCOUNT_ID>` |
+| Bedrock Agent ID | `<FROM_TERRAFORM_OUTPUT>` |
+| Agent Alias (DEV) | `<FROM_TERRAFORM_OUTPUT>` |
+| Knowledge Base ID | `<YOUR_KB_ID>` |
+| Data Source ID | `<YOUR_DATASOURCE_ID>` |
+| API Gateway | `<FROM_TERRAFORM_OUTPUT>` |
+| SQS Queue | `salesforceagent-case-analysis` |
+| Lambda Function | `salesforceagent-api` |
+| SF Instance | `https://<YOUR_ORG>.my.salesforce.com` |
+| SF Org Alias | `<YOUR_ORG_ALIAS>` |
+| Consumer Key | `<FROM_CONNECTED_APP>` |
+| Private Key ARN | `<FROM_SECRETS_MANAGER>` |
+
+> **Note**: Get actual values from `terraform output` after deployment.
 
 ---
 
@@ -137,15 +139,15 @@ Triggers full flow: Case → Platform Event → Event Relay → SQS → Lambda �
 
 ```bash
 # Health Check
-curl https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod/health
+curl $API_GATEWAY_URL/health
 
 # Direct Agent Invocation
-curl -X POST https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod/agent/invoke \
+curl -X POST $API_GATEWAY_URL/agent/invoke \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Search for cases about login issues"}'
 
 # Case Analysis (without SF update)
-curl -X POST https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod/case/analyze \
+curl -X POST $API_GATEWAY_URL/case/analyze \
   -H "Content-Type: application/json" \
   -d '{
     "case_number": "TEST-001",
@@ -155,18 +157,23 @@ curl -X POST https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod/case/an
   }'
 
 # Direct KB Search
-curl -X POST https://9ed3wk8ehh.execute-api.us-east-1.amazonaws.com/prod/kb/search \
+curl -X POST $API_GATEWAY_URL/kb/search \
   -H "Content-Type: application/json" \
   -d '{"query": "password reset", "max_results": 5}'
 ```
 
+> **Note**: API now requires IAM auth. Use `awscurl` with AWS credentials:
+> ```bash
+> awscurl --service execute-api --region us-east-1 $API_GATEWAY_URL/health
+> ```
+
 ### Option 3: Send Message Directly to SQS
 
 ```bash
-eval $(aws configure export-credentials --profile sandbox4 --format env)
+eval $(aws configure export-credentials --profile YOUR_PROFILE --format env)
 
 aws sqs send-message \
-  --queue-url https://sqs.us-east-1.amazonaws.com/914296863611/salesforceagent-case-analysis \
+  --queue-url $SQS_QUEUE_URL \
   --message-body '{
     "version": "0",
     "id": "test-event",
@@ -174,7 +181,7 @@ aws sqs send-message \
     "source": "aws.partner/salesforce.com",
     "detail": {
       "payload": {
-        "Record_Id__c": "500gP00000CknWtQAJ",
+        "Record_Id__c": "500xxxxxxxxxx",
         "Payload__c": "{\"Case_Number__c\":\"00151191\",\"Subject__c\":\"Test Case\",\"Description__c\":\"Testing Lambda\",\"Type__c\":\"Problem\",\"Priority__c\":\"High\"}"
       }
     }
@@ -418,8 +425,8 @@ case_data = json.loads(payload_str)
 ### 5. Bedrock Agent Not Using Knowledge Base
 **Solution**: Update alias to use latest prepared version:
 ```bash
-aws bedrock-agent update-agent-alias --agent-id PVCXCBCV4I --agent-alias-id LTXGEQVZ2P \
-  --agent-alias-name DEV --routing-configuration '[{"agentVersion":"6"}]'
+aws bedrock-agent update-agent-alias --agent-id $AGENT_ID --agent-alias-id $ALIAS_ID \
+  --agent-alias-name DEV --routing-configuration '[{"agentVersion":"LATEST"}]'
 ```
 
 See [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) for detailed troubleshooting.
@@ -430,7 +437,7 @@ See [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) for detailed tr
 
 ```bash
 # Set AWS credentials
-eval $(aws configure export-credentials --profile sandbox4 --format env)
+eval $(aws configure export-credentials --profile YOUR_PROFILE --format env)
 
 # Check Lambda logs
 aws logs tail /aws/lambda/salesforceagent-api --since 5m --format short
@@ -441,11 +448,11 @@ cd .. && zip -j /tmp/lambda.zip handler.py bedrock_client.py salesforce_client.p
 aws lambda update-function-code --function-name salesforceagent-api --zip-file fileb:///tmp/lambda.zip
 
 # Sync Knowledge Base
-aws bedrock-agent start-ingestion-job --knowledge-base-id TKYEX1S8ZP --data-source-id VRYU906VZJ
+aws bedrock-agent start-ingestion-job --knowledge-base-id $KB_ID --data-source-id $DATASOURCE_ID
 
 # Check SQS queue
 aws sqs get-queue-attributes \
-  --queue-url https://sqs.us-east-1.amazonaws.com/914296863611/salesforceagent-case-analysis \
+  --queue-url $SQS_QUEUE_URL \
   --attribute-names ApproximateNumberOfMessages
 ```
 
