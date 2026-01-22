@@ -1,0 +1,51 @@
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/*.tfvars
+!terraform/terraform.tfvars.example
+terraform/modules/*/lambda_function.zip
+terraform/*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+lambda/case_processor/package/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment variables
+.env
+.env.local
+
+# JWT Certificates (NEVER commit private keys)
+salesforce.key
+*.key
+*.pem
+
+# AWS
+.aws/
+
+# Salesforce
+salesforce/.sfdx/
+salesforce/.sf/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

@@ -1,0 +1,75 @@
+# Salesforce Agent - Terraform Variables Template
+# Copy this file to terraform.tfvars and fill in your values
+#
+# SETUP ORDER:
+# 1. Create Knowledge Base in AWS Console (manual - SCP restrictions)
+# 2. Generate JWT certificate: openssl genrsa -out salesforce.key 2048
+# 3. Create self-signed cert: openssl req -new -x509 -key salesforce.key -out salesforce.crt -days 365
+# 4. Configure Salesforce Connected App with certificate
+# 5. Create Event Relay in Salesforce, get Partner Event Source ARN
+# 6. Fill in values below
+# 7. Store private key in Secrets Manager (see README.md Step 4)
+
+project_name = "salesforceagent"
+aws_region   = "us-east-1"
+aws_profile  = "your-aws-profile"  # AWS CLI profile name
+
+################################################################################
+# Knowledge Base (Manual Creation Required)
+# Create in AWS Console: Bedrock > Knowledge Bases > Create
+# Use: amazon.titan-embed-text-v2:0 for embeddings
+################################################################################
+knowledge_base_id = "XXXXXXXXXX"  # e.g., TKYEX1S8ZP
+
+################################################################################
+# Agent Configuration
+################################################################################
+foundation_model   = "amazon.nova-pro-v1:0"  # Bedrock model for agent
+agent_session_ttl  = 1800  # 30 minutes - session timeout
+lambda_timeout     = 300   # 5 minutes - max Lambda execution time
+log_retention_days = 14    # CloudWatch log retention
+
+################################################################################
+# EventBridge / Salesforce Event Relay
+# Get from: Salesforce Setup > Event Relays > Your Relay > Partner Event Source
+################################################################################
+salesforce_event_source = "aws.partner/salesforce.com/00DgP.../0YLgP..."
+
+################################################################################
+# Salesforce JWT Bearer Token Auth
+# 
+# WHY JWT? Salesforce does NOT support OAuth Client Credentials flow.
+# JWT Bearer Token is the only server-to-server auth method.
+#
+# CONNECTED APP SETUP:
+# 1. Setup > App Manager > New Connected App
+# 2. Enable OAuth, add scopes: api, refresh_token
+# 3. Check "Use digital signatures" and upload salesforce.crt
+# 4. Manage > Edit Policies > "Admin approved users are pre-authorized"
+# 5. Add your integration user's profile
+################################################################################
+
+# Your Salesforce instance URL (sandbox or production)
+# Sandbox: https://yourorg--sandboxname.sandbox.my.salesforce.com
+# Production: https://yourorg.my.salesforce.com
+salesforce_instance_url = "https://yourorg--sandbox.sandbox.my.salesforce.com"
+
+# Consumer Key from Connected App
+# Found in: Setup > App Manager > Your App > View > Consumer Key
+salesforce_client_id = "3MVG9..."
+
+# Salesforce username for JWT auth (must be pre-authorized in Connected App)
+salesforce_username = "integration-user@yourcompany.com.sandbox"
+
+# JWT Private Key (PEM format)
+# Generate: openssl genrsa -out salesforce.key 2048
+# 
+# SECURITY NOTE: 
+# - This file (terraform.tfvars) is in .gitignore - NEVER commit it
+# - For production, store key in Secrets Manager instead (see README.md)
+# - The key below is passed to Lambda via environment variable
+salesforce_private_key = <<-EOT
+-----BEGIN PRIVATE KEY-----
+... paste contents of salesforce.key here ...
+-----END PRIVATE KEY-----
+EOT
