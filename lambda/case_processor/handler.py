@@ -100,6 +100,11 @@ def handle_sqs_event(event):
                 logger.warning("case_skipped", reason="no_case_id")
                 continue
 
+            # Idempotency check: skip if already analyzed today
+            if salesforce.is_configured() and salesforce.is_already_analyzed(case_id):
+                logger.info("case_skipped", reason="already_analyzed_today", case_id=case_id)
+                continue
+
             logger.info("case_processing_started", case_id=case_id, case_number=case_number)
 
             # Analyze case with Bedrock Agent

@@ -76,6 +76,33 @@ class SalesforceClient:
             )
         return self._sf
 
+    def is_already_analyzed(self, case_id: str) -> bool:
+        """
+        Check if case was already analyzed today to prevent duplicate processing.
+        Returns True if Agent_Analysis_Status__c = 'Completed' AND AI_Analyzed_Date__c is today.
+        """
+        sf = self._get_connection()
+        if sf is None:
+            return False
+
+        try:
+            today = datetime.utcnow().strftime("%Y-%m-%d")
+            result = sf.query(
+                f"SELECT Agent_Analysis_Status__c, AI_Analyzed_Date__c "
+                f"FROM Case WHERE Id = '{case_id}'"
+            )
+            if result["records"]:
+                record = result["records"][0]
+                status = record.get("Agent_Analysis_Status__c")
+                analyzed_date = record.get("AI_Analyzed_Date__c", "")
+
+                # Skip if already completed today
+                if status == "Completed" and analyzed_date and analyzed_date.startswith(today):
+                    return True
+            return False
+        except Exception:
+            return False  # On error, proceed with processing
+
     def update_case_analysis(self, case_id: str, analysis: dict) -> bool:
         """
         Update Salesforce Case with AI analysis results.
