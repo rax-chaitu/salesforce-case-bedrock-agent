@@ -103,6 +103,10 @@ resource "aws_lambda_function" "api" {
   # Limit concurrency to avoid Bedrock throttling (10 parallel = ~10 cases/15s)
   reserved_concurrent_executions = 10
 
+  tracing_config {
+    mode = "Active"
+  }
+
   environment {
     variables = {
       BEDROCK_AGENT_ID            = var.bedrock_agent_id
@@ -167,6 +171,11 @@ resource "aws_iam_role" "lambda_role" {
 resource "aws_iam_role_policy_attachment" "lambda_logs" {
   role       = aws_iam_role.lambda_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_xray" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
 }
 
 # Bedrock Agent access

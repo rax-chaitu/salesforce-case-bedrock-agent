@@ -16,8 +16,29 @@ from datetime import datetime
 from bedrock_client import BedrockAgentClient
 from salesforce_client import SalesforceClient
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+
+class StructuredLogger:
+    """JSON structured logging for CloudWatch Insights queries."""
+
+    def __init__(self, name):
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(logging.INFO)
+
+    def _log(self, level, event, **kwargs):
+        msg = {"event": event, "timestamp": datetime.utcnow().isoformat(), **kwargs}
+        getattr(self.logger, level)(json.dumps(msg))
+
+    def info(self, event, **kwargs):
+        self._log("info", event, **kwargs)
+
+    def error(self, event, **kwargs):
+        self._log("error", event, **kwargs)
+
+    def warning(self, event, **kwargs):
+        self._log("warning", event, **kwargs)
+
+
+logger = StructuredLogger(__name__)
 
 # Initialize clients
 bedrock = BedrockAgentClient()
@@ -76,10 +97,10 @@ def handle_sqs_event(event):
             priority = case_data.get("Priority__c", "Medium")
 
             if not case_id:
-                logger.warning("No Case ID in event, skipping")
+                logger.warning("case_skipped", reason="no_case_id")
                 continue
 
-            logger.info(f"Processing Case: {case_number} ({case_id})")
+            logger.info("case_processing_started", case_id=case_id, case_number=case_number)
 
             # Analyze case with Bedrock Agent
             analysis = analyze_case(
@@ -94,9 +115,9 @@ def handle_sqs_event(event):
             # Update Salesforce Case with analysis
             if salesforce.is_configured():
                 salesforce.update_case_analysis(case_id, analysis)
-                logger.info(f"Updated Salesforce Case {case_number}")
+                logger.info("case_updated", case_id=case_id, case_number=case_number)
             else:
-                logger.warning("Salesforce not configured, skipping update")
+                logger.warning("salesforce_not_configured", case_id=case_id)
 
             results.append(
                 {
@@ -108,7 +129,7 @@ def handle_sqs_event(event):
             )
 
         except Exception as e:
-            logger.error(f"Error processing SQS record: {e}", exc_info=True)
+            logger.error("case_processing_failed", error=str(e), message_id=record.get("messageId"))
             failed_items.append({"itemIdentifier": record["messageId"]})
 
     # Return failed items for SQS to retry
@@ -197,7 +218,7 @@ def handle_api_gateway(event):
             return create_response(404, {"error": f"Not found: {http_method} {path}"})
 
     except Exception as e:
-        logger.error(f"API error: {e}", exc_info=True)
+        logger.error("api_error", error=str(e), path=event.get("path"))
         return create_response(500, {"error": str(e)})
 
 
