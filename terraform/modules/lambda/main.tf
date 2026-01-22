@@ -98,7 +98,7 @@ resource "aws_lambda_function" "api" {
   handler          = "handler.lambda_handler"
   runtime          = "python3.11"
   timeout          = var.lambda_timeout
-  memory_size      = 256
+  memory_size      = 512
 
   # Limit concurrency to avoid Bedrock throttling (10 parallel = ~10 cases/15s)
   reserved_concurrent_executions = 10
@@ -138,10 +138,11 @@ resource "aws_lambda_function" "api" {
 ################################################################################
 
 resource "aws_lambda_event_source_mapping" "sqs_trigger" {
-  event_source_arn = var.sqs_queue_arn
-  function_name    = aws_lambda_function.api.arn
-  batch_size       = 1 # Process one case at a time
-  enabled          = true
+  event_source_arn                   = var.sqs_queue_arn
+  function_name                      = aws_lambda_function.api.arn
+  batch_size                         = 1
+  enabled                            = true
+  function_response_types            = ["ReportBatchItemFailures"]
 }
 
 ################################################################################

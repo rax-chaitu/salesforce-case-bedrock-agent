@@ -49,12 +49,10 @@ def lambda_handler(event, context):
 def handle_sqs_event(event):
     """
     Process SQS messages from EventBridge (Salesforce Platform Events).
-
-    Event Relay structure:
-    - detail.payload.Payload__c = JSON string with case data
-    - detail.payload.Record_Id__c = Case ID
+    Returns batchItemFailures for partial batch failure handling.
     """
     results = []
+    failed_items = []
 
     for record in event.get("Records", []):
         try:
@@ -111,7 +109,11 @@ def handle_sqs_event(event):
 
         except Exception as e:
             logger.error(f"Error processing SQS record: {e}", exc_info=True)
-            results.append({"error": str(e), "record": record.get("messageId")})
+            failed_items.append({"itemIdentifier": record["messageId"]})
+
+    # Return failed items for SQS to retry
+    if failed_items:
+        return {"batchItemFailures": failed_items}
 
     return {
         "statusCode": 200,
