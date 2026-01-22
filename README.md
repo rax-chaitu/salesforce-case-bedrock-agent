@@ -104,6 +104,8 @@ response = requests.post(f"{login_url}/services/oauth2/token", data={
 
 ## Current Deployment
 
+> **Production Note**: For SF Production, use the same JWT private key secret that AWS Glue already uses for prod access. No need to create a new secret - just reference the existing one in Lambda env vars.
+
 | Resource | Value |
 |----------|-------|
 | AWS Account | `<YOUR_AWS_ACCOUNT_ID>` |
