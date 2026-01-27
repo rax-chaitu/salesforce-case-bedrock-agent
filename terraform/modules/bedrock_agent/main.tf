@@ -50,9 +50,15 @@ resource "aws_bedrockagent_agent" "salesforce_agent" {
   }]
 
   instruction = <<-EOT
-    You are a Salesforce Case Analysis Agent with access to a Knowledge Base of closed cases.
+    You are a Salesforce Case Analysis Agent. You analyze EXISTING cases and provide resolution suggestions based ONLY on Knowledge Articles (KAV) and similar closed cases from the Knowledge Base.
 
-    CRITICAL: ALWAYS search the Knowledge Base FIRST.
+    CONTEXT: The case has ALREADY been created in Salesforce. Your job is to help support agents resolve it faster.
+
+    CRITICAL RULES:
+    1. ALWAYS search the Knowledge Base FIRST
+    2. ONLY provide suggestions found in the Knowledge Base
+    3. DO NOT use general knowledge or make up solutions
+    4. If no relevant KB article or similar case exists, say "No KB match found - requires manual review"
 
     KB Search Strategy:
     1. If user provides a Case ID (format: 500Pe...), search using BOTH the ID AND description keywords
@@ -61,22 +67,21 @@ resource "aws_bedrockagent_agent" "salesforce_agent" {
     4. Look for Close_Notes__c field for resolution steps
     5. Match by Priority and Category when available
 
-    For Case ID searches:
-    - Include the exact Case ID in your search query
-    - Also include related keywords from the case description
-    - Example: "500Pe00000s9XyXIAU closed won opportunity error"
-
     Response Format (JSON):
     {
       "summary": "Brief issue description",
-      "steps": ["Step 1", "Step 2", "Step 3"],
+      "steps": ["Step 1 from KB", "Step 2 from KB"],
       "self_resolvable": true/false,
       "similar_cases": ["Case #12345: Resolution summary"],
       "estimated_resolution": "X hours/days",
-      "recommendation": "Self-resolve using steps above" OR "Requires admin: [reason]"
+      "recommendation": "Self-resolve using KB steps" OR "Requires admin intervention: [reason]" OR "No KB match found - requires manual review"
     }
 
-    Always return valid JSON. Be concise and actionable.
+    IMPORTANT:
+    - NEVER suggest "create a case" - the case already exists
+    - NEVER provide generic solutions not found in KB
+    - If KB has no match, set self_resolvable=false and recommendation="No KB match found - requires manual review"
+    - Always return valid JSON. Be concise and actionable.
   EOT
 
   idle_session_ttl_in_seconds = var.agent_session_ttl
@@ -128,29 +133,27 @@ resource "null_resource" "prepare_agent" {
         --agent-id ${aws_bedrockagent_agent.salesforce_agent.agent_id} \
         --region ${data.aws_region.current.id} \
         --profile ${var.aws_profile}
-      sleep 10
+      sleep 15
     EOT
   }
 }
 
 ################################################################################
 # Agent Aliases
+# Note: Updating alias without routing_configuration creates new version
 ################################################################################
 
 resource "aws_bedrockagent_agent_alias" "dev_alias" {
   depends_on       = [null_resource.prepare_agent]
   agent_id         = aws_bedrockagent_agent.salesforce_agent.agent_id
   agent_alias_name = "DEV"
-  description      = "Development alias"
+  description      = "Development alias - v${md5(aws_bedrockagent_agent.salesforce_agent.instruction)}"
   tags             = { Environment = "development", Project = var.project_name }
 
-  lifecycle {
-    ignore_changes = [routing_configuration]
-  }
+  # No routing_configuration = creates new version from DRAFT and points to it
 }
 
 resource "aws_bedrockagent_agent_alias" "prod_alias" {
-  depends_on       = [null_resource.prepare_agent]
   agent_id         = aws_bedrockagent_agent.salesforce_agent.agent_id
   agent_alias_name = "PROD"
   description      = "Production alias"

@@ -437,6 +437,28 @@ See [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) for detailed tr
 
 ## Quick Commands
 
+### AWS Credentials (IMPORTANT - Tokens Expire!)
+
+AWS SSO tokens expire periodically. If you see `InvalidClientTokenId` error, refresh credentials:
+
+```bash
+# Option 1: SSO Login (if using IAM Identity Center)
+aws sso login --profile SANDBOX5JAN27
+
+# Option 2: Export credentials to environment (temporary session)
+eval $(aws configure export-credentials --profile SANDBOX5JAN27 --format env)
+
+# Verify credentials work
+aws sts get-caller-identity --profile SANDBOX5JAN27
+```
+
+> **Tip**: Add to your `.zshrc` or `.bashrc`:
+> ```bash
+> alias awslogin='aws sso login --profile SANDBOX5JAN27 && eval $(aws configure export-credentials --profile SANDBOX5JAN27 --format env)'
+> ```
+
+### Common Operations
+
 ```bash
 # Set AWS credentials
 eval $(aws configure export-credentials --profile YOUR_PROFILE --format env)
@@ -495,6 +517,107 @@ aws sqs get-queue-attributes \
 
 ---
 
+## Automated KB Sync (AppFlow + Step Functions)
+
+Automates Knowledge Base synchronization from Salesforce using AppFlow and Step Functions.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        KB SYNC ORCHESTRATION                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  EventBridge          Step Functions                    AWS Services
+  ──────────          ───────────────                   ────────────
+                                                        
+  ┌──────────┐       ┌─────────────────────────────────────────────────────┐
+  │ Schedule │──────▶│  StartAppFlow → Poll → StartKBSync → Poll → Done   │
+  │(Daily 2am)│       └──────────┬────────────────────────────┬───────────┘
+  └──────────┘                   │                            │
+                                 ▼                            ▼
+                        ┌───────────────┐            ┌───────────────┐
+                        │   AppFlow     │            │  Bedrock KB   │
+                        │ (SF → S3)     │            │  Ingestion    │
+                        └───────────────┘            └───────────────┘
+```
+
+### Prerequisites (IMPORTANT)
+
+> ⚠️ **AppFlow must be created manually in AWS Console first** - OAuth connection to Salesforce requires interactive authentication that cannot be automated via Terraform.
+
+1. **Create AppFlow Flow in AWS Console**:
+   - Go to Amazon AppFlow → Create flow
+   - Source: Salesforce (authenticate with OAuth)
+   - Destination: S3 bucket used by Bedrock KB
+   - Trigger type: OnDemand
+   - Flow name: `SYNCCASESWITHS3` (or update `appflow_flow_name` variable)
+
+2. **Verify Salesforce Connection**:
+   - AppFlow → Connections → Verify Salesforce connection is active
+   - Test the flow manually once before enabling automation
+
+### Configuration
+
+Update `terraform/terraform.tfvars`:
+
+```hcl
+# AppFlow + Step Functions KB Sync
+appflow_flow_name        = "SYNCCASESWITHS3"      # Your AppFlow flow name
+kb_data_source_id        = "KZDT2HX02R"           # Bedrock KB Data Source ID
+sync_schedule_expression = "cron(0 2 * * ? *)"   # Daily at 2am UTC
+enable_scheduled_sync    = false                  # Set true to enable
+```
+
+### Deploy
+
+```bash
+cd terraform
+terraform plan
+terraform apply
+```
+
+### Manual Execution
+
+Test the state machine before enabling scheduled sync:
+
+```bash
+# Start execution
+aws stepfunctions start-execution \
+  --state-machine-arn "arn:aws:states:us-east-1:ACCOUNT:stateMachine:salesforceagent-kb-sync" \
+  --profile SANDBOX5JAN27
+
+# Check execution status
+aws stepfunctions describe-execution \
+  --execution-arn "arn:aws:states:us-east-1:ACCOUNT:execution:salesforceagent-kb-sync:EXECUTION_ID" \
+  --profile SANDBOX5JAN27
+```
+
+### Enable Scheduled Sync
+
+Once tested, enable automatic daily sync:
+
+```hcl
+# terraform.tfvars
+enable_scheduled_sync = true
+```
+
+```bash
+terraform apply
+```
+
+### Terraform Resources Created
+
+| Resource | Description |
+|----------|-------------|
+| `aws_sfn_state_machine.kb_sync` | Orchestrates AppFlow → KB Sync |
+| `aws_iam_role.sfn_role` | IAM role for Step Functions |
+| `aws_cloudwatch_log_group.sfn_logs` | Execution logs |
+| `aws_cloudwatch_event_rule.kb_sync_schedule` | Daily trigger (if enabled) |
+| `aws_iam_role.eventbridge_sfn_role` | IAM role for EventBridge |
+
+---
+
 ## Cost Estimate (Monthly)
 
 | Component | Cost |
@@ -504,7 +627,36 @@ aws sqs get-queue-attributes \
 | API Gateway | ~$1 |
 | SQS | <$1 |
 | Knowledge Base | ~$2 |
-| **Total** | **~$12** |
+| Step Functions | <$1 |
+| AppFlow | ~$1 |
+| **Total** | **~$14** |
+
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [AppFlow KB Sync Setup](docs/APPFLOW_KB_SYNC_SETUP.md) | Complete guide for AppFlow + Step Functions KB sync pipeline |
+| [Salesforce Connected App Guide](docs/SALESFORCE_CONNECTED_APP_GUIDE.md) | Setting up Salesforce Connected App for JWT auth |
+| [Salesforce Auth Implementation](docs/SALESFORCE_AUTH_IMPLEMENTATION.md) | JWT Bearer Token flow implementation details |
+| [Deployment Guide](docs/DEPLOYMENT_GUIDE.md) | Full deployment instructions |
+| [Quick Redeploy](docs/QUICK_REDEPLOY.md) | Fast redeployment commands |
+| [Implementation Notes](docs/IMPLEMENTATION_NOTES.md) | Troubleshooting and lessons learned |
+| [Event Driven Architecture](docs/EVENT_DRIVEN_ARCHITECTURE.md) | EventBridge + SQS + Lambda flow |
+| [API Summary](docs/API_SUMMARY.md) | API Gateway endpoints reference |
+| [Terraform Basics](docs/TERRAFORM_BASICS.md) | Terraform commands and tips |
+| [Naming Conventions](docs/NAMING_CONVENTIONS.md) | Resource naming standards |
+
+### Historical / Reference
+
+| Document | Description |
+|----------|-------------|
+| [AgentCore vs Bedrock Agents](docs/AGENTCORE_VS_BEDROCK_AGENTS.md) | Comparison (AgentCore abandoned) |
+| [Migration AgentCore to Bedrock](docs/MIGRATION_AGENTCORE_TO_BEDROCK_AGENT.md) | Migration notes |
+| [Bedrock KB Salesforce Connector](docs/BEDROCK_KB_SALESFORCE_CONNECTOR.md) | Native SF connector (abandoned - use AppFlow) |
+| [README PKCE](docs/README_PKCE.md) | PKCE auth flow (not used) |
+| [Salesforce Deployment](docs/SALESFORCE_DEPLOYMENT.md) | SF metadata deployment |
 
 ---
 
