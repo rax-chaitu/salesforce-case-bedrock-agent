@@ -43,6 +43,12 @@ module "secrets" {
 
   project_name           = var.project_name
   salesforce_private_key = var.salesforce_private_key
+
+  # Bedrock KB Salesforce Connector credentials (DISABLED)
+  # Using S3 + AppFlow approach instead
+  # salesforce_kb_consumer_key    = var.salesforce_kb_consumer_key
+  # salesforce_kb_consumer_secret = var.salesforce_kb_consumer_secret
+  # salesforce_kb_auth_url        = var.salesforce_kb_auth_url
 }
 
 module "sqs" {
@@ -122,3 +128,9 @@ output "knowledge_base_id" {
   description = "Knowledge Base ID"
   value       = var.knowledge_base_id
 }
+
+# Disabled - using S3 + AppFlow approach
+# output "salesforce_kb_connector_secret_arn" {
+#   description = "Salesforce KB Connector Secret ARN (for Bedrock data source)"
+#   value       = module.secrets.kb_connector_secret_arn
+# }

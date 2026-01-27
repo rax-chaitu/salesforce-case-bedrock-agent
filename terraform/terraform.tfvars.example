@@ -1,6 +1,9 @@
 # Salesforce Agent - Terraform Variables Template
 # Copy this file to terraform.tfvars and fill in your values
 #
+# NAMING CONVENTION: sf-{object}-{function}
+# Examples: sf-case-analysis, sf-account-enrich, sf-opp-scoring
+#
 # SETUP ORDER:
 # 1. Create Knowledge Base in AWS Console (manual - SCP restrictions)
 # 2. Generate JWT certificate: openssl genrsa -out salesforce.key 2048
@@ -10,7 +13,7 @@
 # 6. Fill in values below
 # 7. Store private key in Secrets Manager (see README.md Step 4)
 
-project_name = "salesforceagent"
+project_name = "sf-case-analysis"  # Pattern: sf-{object}-{function}
 aws_region   = "us-east-1"
 aws_profile  = "your-aws-profile"  # AWS CLI profile name
 
@@ -73,3 +76,33 @@ salesforce_private_key = <<-EOT
 ... paste contents of salesforce.key here ...
 -----END PRIVATE KEY-----
 EOT
+
+################################################################################
+# Bedrock KB Salesforce Connector (OAuth2 Client Credentials)
+# 
+# Use this to create a Secrets Manager secret for Bedrock KB Salesforce
+# data source connector. This is DIFFERENT from JWT auth above.
+#
+# CONNECTED APP REQUIREMENTS:
+# 1. Setup > OAuth and OpenID Connect Settings > Enable "Allow OAuth Client Credentials Flow"
+# 2. App Manager > Your App > Manage > Edit Policies > Set "Run As" user
+# 3. Consumer Secret must be available (not just certificate)
+#
+# TROUBLESHOOTING:
+# If KB sync fails with "credential" errors:
+#   - Verify Client Credentials Flow is enabled at org level
+#   - Verify Run As user is set in Connected App policies
+#   - Verify authenticationUrl matches your org (sandbox vs prod)
+################################################################################
+
+# Consumer Key from Connected App (same as salesforce_client_id or different app)
+salesforce_kb_consumer_key = ""
+
+# Consumer Secret from Connected App (NOT the private key!)
+# Found in: Setup > App Manager > Your App > View > Consumer Secret
+salesforce_kb_consumer_secret = ""
+
+# OAuth token endpoint URL
+# Sandbox: https://yourorg--sandboxname.sandbox.my.salesforce.com/services/oauth2/token
+# Production: https://yourorg.my.salesforce.com/services/oauth2/token
+salesforce_kb_auth_url = ""
