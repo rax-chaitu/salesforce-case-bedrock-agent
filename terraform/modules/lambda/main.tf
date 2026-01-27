@@ -38,25 +38,17 @@ variable "sqs_queue_arn" {
   type = string
 }
 
-# Salesforce JWT config
-variable "salesforce_instance_url" {
-  type    = string
-  default = ""
+# Salesforce JWT config (matches Glue pattern)
+variable "salesforce_secret_name" {
+  description = "Secret name: salesforce-{env}-sandbox-jwt or salesforce-production-jwt"
+  type        = string
+  default     = ""
 }
 
-variable "salesforce_client_id" {
-  type    = string
-  default = ""
-}
-
-variable "salesforce_username" {
-  type    = string
-  default = ""
-}
-
-variable "salesforce_private_key_arn" {
-  type    = string
-  default = ""
+variable "salesforce_environment" {
+  description = "inttest or production (determines auth URL)"
+  type        = string
+  default     = "inttest"
 }
 
 data "aws_caller_identity" "current" {}
@@ -66,10 +58,13 @@ data "aws_region" "current" {}
 # Lambda Function
 ################################################################################
 
-# Package dependencies
+# Package dependencies and Python files
 resource "null_resource" "pip_install" {
   triggers = {
-    requirements = filemd5("${path.module}/../../../lambda/case_processor/requirements.txt")
+    requirements     = filemd5("${path.module}/../../../lambda/case_processor/requirements.txt")
+    handler          = filemd5("${path.module}/../../../lambda/case_processor/handler.py")
+    salesforce       = filemd5("${path.module}/../../../lambda/case_processor/salesforce_client.py")
+    bedrock          = filemd5("${path.module}/../../../lambda/case_processor/bedrock_client.py")
   }
 
   provisioner "local-exec" {
@@ -110,13 +105,11 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      BEDROCK_AGENT_ID            = var.bedrock_agent_id
-      BEDROCK_AGENT_ALIAS_ID      = var.bedrock_agent_alias_id
-      BEDROCK_KNOWLEDGE_BASE_ID   = var.knowledge_base_id
-      SALESFORCE_INSTANCE_URL     = var.salesforce_instance_url
-      SALESFORCE_CLIENT_ID        = var.salesforce_client_id
-      SALESFORCE_USERNAME         = var.salesforce_username
-      SALESFORCE_PRIVATE_KEY_ARN  = var.salesforce_private_key_arn
+      BEDROCK_AGENT_ID          = var.bedrock_agent_id
+      BEDROCK_AGENT_ALIAS_ID    = var.bedrock_agent_alias_id
+      BEDROCK_KNOWLEDGE_BASE_ID = var.knowledge_base_id
+      SALESFORCE_SECRET_NAME    = var.salesforce_secret_name
+      SALESFORCE_ENVIRONMENT    = var.salesforce_environment
     }
   }
 
@@ -222,7 +215,7 @@ resource "aws_iam_role_policy" "lambda_sqs" {
   })
 }
 
-# Secrets Manager access
+# Secrets Manager access (salesforce-*-jwt secrets)
 resource "aws_iam_role_policy" "lambda_secrets" {
   name = "${var.project_name}-secrets"
   role = aws_iam_role.lambda_role.id
@@ -233,7 +226,10 @@ resource "aws_iam_role_policy" "lambda_secrets" {
       {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = ["arn:aws:secretsmanager:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:secret:${var.project_name}/*"]
+        Resource = [
+          # Glue-style secrets: salesforce-inttest-sandbox-jwt, salesforce-production-jwt
+          "arn:aws:secretsmanager:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:secret:salesforce-*"
+        ]
       },
       {
         Effect   = "Allow"

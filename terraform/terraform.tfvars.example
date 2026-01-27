@@ -39,10 +39,13 @@ log_retention_days = 14    # CloudWatch log retention
 salesforce_event_source = "aws.partner/salesforce.com/00DgP.../0YLgP..."
 
 ################################################################################
-# Salesforce JWT Bearer Token Auth
+# Salesforce JWT Auth (matches Glue job pattern)
 # 
-# WHY JWT? Salesforce does NOT support OAuth Client Credentials flow.
-# JWT Bearer Token is the only server-to-server auth method.
+# SECRET NAMING:
+# - inttest:    salesforce-inttest-sandbox-jwt
+# - production: salesforce-production-jwt
+#
+# SECRET FORMAT: { "client_id", "username", "private_key" }
 #
 # CONNECTED APP SETUP:
 # 1. Setup > App Manager > New Connected App
@@ -52,57 +55,21 @@ salesforce_event_source = "aws.partner/salesforce.com/00DgP.../0YLgP..."
 # 5. Add your integration user's profile
 ################################################################################
 
-# Your Salesforce instance URL (sandbox or production)
-# Sandbox: https://yourorg--sandboxname.sandbox.my.salesforce.com
-# Production: https://yourorg.my.salesforce.com
-salesforce_instance_url = "https://yourorg--sandbox.sandbox.my.salesforce.com"
+# Environment: "inttest" or "production"
+# - inttest:    uses https://test.salesforce.com, secret: salesforce-inttest-sandbox-jwt
+# - production: uses https://login.salesforce.com, secret: salesforce-production-jwt
+salesforce_environment = "inttest"
 
-# Consumer Key from Connected App
-# Found in: Setup > App Manager > Your App > View > Consumer Key
+# Create new secret or use existing?
+# - true:  New AWS accounts (sandbox5jan27) - creates salesforce-inttest-sandbox-jwt
+# - false: Main AWS account - uses existing Glue secrets
+create_sf_secret = true
+
+# Only needed if create_sf_secret = true
 salesforce_client_id = "3MVG9..."
-
-# Salesforce username for JWT auth (must be pre-authorized in Connected App)
-salesforce_username = "integration-user@yourcompany.com.sandbox"
-
-# JWT Private Key (PEM format)
-# Generate: openssl genrsa -out salesforce.key 2048
-# 
-# SECURITY NOTE: 
-# - This file (terraform.tfvars) is in .gitignore - NEVER commit it
-# - For production, store key in Secrets Manager instead (see README.md)
-# - The key below is passed to Lambda via environment variable
+salesforce_username  = "integration-user@yourcompany.com.sandbox"
 salesforce_private_key = <<-EOT
 -----BEGIN PRIVATE KEY-----
 ... paste contents of salesforce.key here ...
 -----END PRIVATE KEY-----
 EOT
-
-################################################################################
-# Bedrock KB Salesforce Connector (OAuth2 Client Credentials)
-# 
-# Use this to create a Secrets Manager secret for Bedrock KB Salesforce
-# data source connector. This is DIFFERENT from JWT auth above.
-#
-# CONNECTED APP REQUIREMENTS:
-# 1. Setup > OAuth and OpenID Connect Settings > Enable "Allow OAuth Client Credentials Flow"
-# 2. App Manager > Your App > Manage > Edit Policies > Set "Run As" user
-# 3. Consumer Secret must be available (not just certificate)
-#
-# TROUBLESHOOTING:
-# If KB sync fails with "credential" errors:
-#   - Verify Client Credentials Flow is enabled at org level
-#   - Verify Run As user is set in Connected App policies
-#   - Verify authenticationUrl matches your org (sandbox vs prod)
-################################################################################
-
-# Consumer Key from Connected App (same as salesforce_client_id or different app)
-salesforce_kb_consumer_key = ""
-
-# Consumer Secret from Connected App (NOT the private key!)
-# Found in: Setup > App Manager > Your App > View > Consumer Secret
-salesforce_kb_consumer_secret = ""
-
-# OAuth token endpoint URL
-# Sandbox: https://yourorg--sandboxname.sandbox.my.salesforce.com/services/oauth2/token
-# Production: https://yourorg.my.salesforce.com/services/oauth2/token
-salesforce_kb_auth_url = ""

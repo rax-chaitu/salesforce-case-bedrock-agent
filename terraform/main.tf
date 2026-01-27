@@ -42,13 +42,11 @@ module "secrets" {
   source = "./modules/secrets"
 
   project_name           = var.project_name
+  salesforce_environment = var.salesforce_environment
+  create_secret          = var.create_sf_secret
+  salesforce_client_id   = var.salesforce_client_id
+  salesforce_username    = var.salesforce_username
   salesforce_private_key = var.salesforce_private_key
-
-  # Bedrock KB Salesforce Connector credentials (DISABLED)
-  # Using S3 + AppFlow approach instead
-  # salesforce_kb_consumer_key    = var.salesforce_kb_consumer_key
-  # salesforce_kb_consumer_secret = var.salesforce_kb_consumer_secret
-  # salesforce_kb_auth_url        = var.salesforce_kb_auth_url
 }
 
 module "sqs" {
@@ -78,11 +76,9 @@ module "lambda" {
   knowledge_base_id      = var.knowledge_base_id
   sqs_queue_arn          = module.sqs.queue_arn
 
-  # Salesforce JWT config
-  salesforce_instance_url    = var.salesforce_instance_url
-  salesforce_client_id       = var.salesforce_client_id
-  salesforce_username        = var.salesforce_username
-  salesforce_private_key_arn = module.secrets.private_key_arn
+  # Salesforce JWT (matches Glue pattern)
+  salesforce_secret_name  = module.secrets.secret_name
+  salesforce_environment  = var.salesforce_environment
 }
 
 ################################################################################

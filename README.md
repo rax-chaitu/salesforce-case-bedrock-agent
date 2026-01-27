@@ -104,7 +104,10 @@ response = requests.post(f"{login_url}/services/oauth2/token", data={
 
 ## Current Deployment
 
-> **Production Note**: For SF Production, use the same JWT private key secret that AWS Glue already uses for prod access. No need to create a new secret - just reference the existing one in Lambda env vars.
+> **Secret Architecture**: Uses consolidated JSON secret matching AWS Glue pattern:
+> - Secret name: `salesforce-inttest-sandbox-jwt` (sandbox) or `salesforce-production-jwt` (prod)
+> - Format: `{ "client_id", "username", "private_key" }`
+> - Lambda reads all credentials from single secret (no separate env vars for each field)
 
 | Resource | Value |
 |----------|-------|
@@ -116,10 +119,8 @@ response = requests.post(f"{login_url}/services/oauth2/token", data={
 | API Gateway | `<FROM_TERRAFORM_OUTPUT>` |
 | SQS Queue | `salesforceagent-case-analysis` |
 | Lambda Function | `salesforceagent-api` |
-| SF Instance | `https://<YOUR_ORG>.my.salesforce.com` |
-| SF Org Alias | `<YOUR_ORG_ALIAS>` |
-| Consumer Key | `<FROM_CONNECTED_APP>` |
-| Private Key ARN | `<FROM_SECRETS_MANAGER>` |
+| SF Secret Name | `salesforce-inttest-sandbox-jwt` |
+| SF Environment | `inttest` or `production` |
 
 > **Note**: Get actual values from `terraform output` after deployment.
 
@@ -256,15 +257,44 @@ openssl req -new -x509 -key salesforce.key -out salesforce.crt -days 365 \
    - Add user profile
 6. **Copy Consumer Key**
 
-### Step 4: Store JWT Private Key in Secrets Manager
+### Step 4: Configure Salesforce JWT Secret
 
+The secret format matches AWS Glue jobs for consistency across projects:
+
+**Secret Naming Convention:**
+- Sandbox/Inttest: `salesforce-inttest-sandbox-jwt`
+- Production: `salesforce-production-jwt`
+
+**Secret Format (JSON):**
+```json
+{
+  "client_id": "3MVG9...",
+  "username": "integration-user@company.com.sandbox",
+  "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+}
+```
+
+**Option A: Create new secret (new AWS accounts)**
 ```bash
-eval $(aws configure export-credentials --profile YOUR_PROFILE --format env)
+# Terraform handles this automatically when create_sf_secret = true
+# Set in terraform.tfvars:
+salesforce_environment = "inttest"
+create_sf_secret       = true
+salesforce_client_id   = "3MVG9..."
+salesforce_username    = "your-user@company.com.sandbox"
+salesforce_private_key = <<-EOT
+-----BEGIN PRIVATE KEY-----
+...
+-----END PRIVATE KEY-----
+EOT
+```
 
-# Create secret with AWS-managed key (NOT custom KMS - avoids permission issues)
-aws secretsmanager create-secret \
-  --name "salesforceagent/salesforce/jwt-private-key" \
-  --secret-string file://salesforce.key
+**Option B: Use existing secret (main AWS account with Glue)**
+```bash
+# If salesforce-inttest-sandbox-jwt or salesforce-production-jwt already exists
+# Set in terraform.tfvars:
+salesforce_environment = "inttest"  # or "production"
+create_sf_secret       = false      # Use existing secret
 ```
 
 ### Step 5: Configure Terraform
@@ -281,15 +311,16 @@ aws_region        = "us-east-1"
 aws_profile       = "your-aws-profile"
 knowledge_base_id = "YOUR_KB_ID"
 
-# Salesforce JWT Config
-salesforce_instance_url = "https://your-instance.sandbox.my.salesforce.com"
-salesforce_client_id    = "YOUR_CONSUMER_KEY"
-salesforce_username     = "your-user@example.com.sandbox"
-```
-
-Update `terraform/main.tf` with secret ARN:
-```hcl
-salesforce_private_key_arn = "arn:aws:secretsmanager:REGION:ACCOUNT:secret:salesforceagent/salesforce/jwt-private-key-XXXXXX"
+# Salesforce JWT Config (matches Glue job pattern)
+salesforce_environment = "inttest"    # or "production"
+create_sf_secret       = true         # false if using existing secret
+salesforce_client_id   = "YOUR_CONSUMER_KEY"
+salesforce_username    = "your-user@example.com.sandbox"
+salesforce_private_key = <<-EOT
+-----BEGIN PRIVATE KEY-----
+...contents of salesforce.key...
+-----END PRIVATE KEY-----
+EOT
 ```
 
 ### Step 6: Deploy AWS Infrastructure

@@ -2,11 +2,13 @@
 """
 Salesforce Client - JWT Bearer Token Flow
 
+Matches Glue job authentication pattern:
+- Secret: salesforce-{environment}-sandbox-jwt or salesforce-production-jwt
+- Format: { "client_id", "username", "private_key" }
+
 Environment Variables:
-- SALESFORCE_INSTANCE_URL
-- SALESFORCE_CLIENT_ID
-- SALESFORCE_USERNAME
-- SALESFORCE_PRIVATE_KEY_ARN
+- SALESFORCE_SECRET_NAME: Secret name (e.g., salesforce-inttest-sandbox-jwt)
+- SALESFORCE_ENVIRONMENT: inttest or production (determines auth URL)
 """
 
 import contextlib
@@ -25,54 +27,85 @@ logger = logging.getLogger(__name__)
 
 
 class SalesforceClient:
+    """
+    Salesforce client using JWT Bearer Token flow.
+    
+    Authentication flow (same as Glue job):
+    1. Fetch credentials from Secrets Manager (client_id, username, private_key)
+    2. Create JWT signed with private key
+    3. Exchange JWT for access token at Salesforce OAuth endpoint
+    4. Connect using simple-salesforce with access token
+    """
+    
     def __init__(self):
-        self.instance_url = os.environ.get("SALESFORCE_INSTANCE_URL", "")
-        self.client_id = os.environ.get("SALESFORCE_CLIENT_ID", "")
-        self.username = os.environ.get("SALESFORCE_USERNAME", "")
-        self.private_key_arn = os.environ.get("SALESFORCE_PRIVATE_KEY_ARN", "")
-        self.login_url = (
-            "https://test.salesforce.com"
-            if "sandbox" in self.instance_url
-            else "https://login.salesforce.com"
+        self.secret_name = os.environ.get("SALESFORCE_SECRET_NAME", "")
+        self.environment = os.environ.get("SALESFORCE_ENVIRONMENT", "inttest")
+        
+        # Auth URL based on environment (matches Glue pattern)
+        self.auth_url = (
+            "https://login.salesforce.com"
+            if self.environment == "production"
+            else "https://test.salesforce.com"
         )
-
+        
         self._sf = None
-        self._private_key = None
+        self._credentials = None
 
     def is_configured(self) -> bool:
-        return bool(self.client_id and self.username and self.private_key_arn)
+        """Check if Salesforce integration is configured."""
+        return bool(self.secret_name)
 
-    def _get_private_key(self):
-        if not self._private_key:
+    def _get_credentials(self) -> dict:
+        """
+        Fetch credentials from Secrets Manager.
+        Format: { "client_id", "username", "private_key" }
+        """
+        if not self._credentials:
             secrets = boto3.client("secretsmanager")
-            self._private_key = secrets.get_secret_value(SecretId=self.private_key_arn)[
-                "SecretString"
-            ]
-        return self._private_key
+            response = secrets.get_secret_value(SecretId=self.secret_name)
+            self._credentials = json.loads(response["SecretString"])
+            logger.info(f"Loaded SF credentials for: {self._credentials.get('username', 'unknown')}")
+        return self._credentials
 
-    def _get_access_token(self):
-        payload = {
-            "iss": self.client_id,
-            "sub": self.username,
-            "aud": self.login_url,
-            "exp": int(time.time()) + 180,
+    def _get_access_token(self) -> dict:
+        """
+        Exchange JWT for Salesforce access token.
+        Returns dict with access_token and instance_url.
+        """
+        creds = self._get_credentials()
+        
+        # Create JWT (same as Glue job)
+        claims = {
+            "iss": creds["client_id"],
+            "sub": creds["username"],
+            "aud": self.auth_url,
+            "exp": int(time.time()) + 300,  # 5 min expiry
         }
-        jwt_token = jwt.encode(payload, self._get_private_key(), algorithm="RS256")
-
-        resp = requests.post(
-            f"{self.login_url}/services/oauth2/token",
+        jwt_token = jwt.encode(claims, creds["private_key"], algorithm="RS256")
+        
+        # Exchange for access token
+        response = requests.post(
+            f"{self.auth_url}/services/oauth2/token",
             data={
                 "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
                 "assertion": jwt_token,
             },
+            timeout=30,
         )
-        resp.raise_for_status()
-        return resp.json()["access_token"]
+        response.raise_for_status()
+        
+        token_data = response.json()
+        logger.info(f"Got SF token, instance: {token_data.get('instance_url', 'unknown')}")
+        return token_data
 
-    def _get_connection(self):
+    def _get_connection(self) -> Salesforce:
+        """Get or create Salesforce connection."""
         if not self._sf and self.is_configured():
+            token_data = self._get_access_token()
             self._sf = Salesforce(
-                instance_url=self.instance_url, session_id=self._get_access_token()
+                instance_url=token_data["instance_url"],
+                session_id=token_data["access_token"],
+                version="62.0",
             )
         return self._sf
 
@@ -96,12 +129,11 @@ class SalesforceClient:
                 status = record.get("Agent_Analysis_Status__c")
                 analyzed_date = record.get("AI_Analyzed_Date__c", "")
 
-                # Skip if already completed today
                 if status == "Completed" and analyzed_date and analyzed_date.startswith(today):
                     return True
             return False
         except Exception:
-            return False  # On error, proceed with processing
+            return False
 
     def update_case_analysis(self, case_id: str, analysis: dict) -> bool:
         """
@@ -120,7 +152,6 @@ class SalesforceClient:
             return False
 
         try:
-            # Build update payload
             update_data = {
                 "AI_Analysis__c": self._format_analysis(analysis),
                 "AI_Suggestions__c": self._format_steps(analysis.get("steps", [])),
@@ -132,14 +163,12 @@ class SalesforceClient:
                 "Agent_Analysis_Status__c": "Completed",
             }
 
-            # Update Case record
             sf.Case.update(case_id, update_data)
             logger.info(f"Updated Case {case_id} with analysis")
             return True
 
         except Exception as e:
             logger.error(f"Failed to update Case {case_id}: {e}")
-            # Try to mark as failed
             with contextlib.suppress(Exception):
                 sf.Case.update(
                     case_id,
@@ -175,4 +204,4 @@ class SalesforceClient:
         """Format similar cases as bullet list."""
         if not cases:
             return ""
-        return "\n".join(f"• {case}" for case in cases[:5])  # Limit to 5
+        return "\n".join(f"• {case}" for case in cases[:5])

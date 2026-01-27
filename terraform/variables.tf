@@ -60,13 +60,22 @@ variable "salesforce_event_source" {
 }
 
 ################################################################################
-# Salesforce API Variables (JWT Bearer Token Flow)
+# Salesforce JWT Auth (matches Glue job pattern)
+# 
+# Secret naming: salesforce-{environment}-sandbox-jwt or salesforce-production-jwt
+# Secret format: { "client_id", "username", "private_key" }
 ################################################################################
 
-variable "salesforce_instance_url" {
-  description = "Salesforce instance URL (e.g., https://myorg.sandbox.my.salesforce.com)"
+variable "salesforce_environment" {
+  description = "Salesforce environment: inttest or production"
   type        = string
-  default     = ""
+  default     = "inttest"
+}
+
+variable "create_sf_secret" {
+  description = "Create new secret (true for new accounts, false to use existing)"
+  type        = bool
+  default     = true
 }
 
 variable "salesforce_client_id" {
@@ -76,7 +85,7 @@ variable "salesforce_client_id" {
 }
 
 variable "salesforce_username" {
-  description = "Salesforce integration user username for JWT auth"
+  description = "Salesforce integration user username"
   type        = string
   default     = ""
 }

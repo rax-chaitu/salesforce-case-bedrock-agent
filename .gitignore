@@ -50,3 +50,7 @@ Thumbs.db
 # Logs
 *.log
 lambda/case_processor/lambda_package/
+
+# Terraform plan files
+*.tfplan
+tfplan

@@ -1,13 +1,42 @@
 ################################################################################
 # Secrets Manager Module
 # 
-# Stores Salesforce credentials for:
-# 1. JWT Bearer Token flow (Lambda → Salesforce API)
-# 2. OAuth2 Client Credentials flow (Bedrock KB → Salesforce connector)
+# Creates Salesforce JWT secret matching Glue job pattern:
+# - salesforce-inttest-sandbox-jwt (for sandbox/inttest)
+# - salesforce-production-jwt (for production)
+#
+# Secret Format: { "client_id", "username", "private_key" }
+#
+# Usage:
+# - create_secret = true:  Creates new secret (sandbox5jan27, new accounts)
+# - create_secret = false: Uses existing secret (main account with Glue secrets)
 ################################################################################
 
 variable "project_name" {
   type = string
+}
+
+variable "salesforce_environment" {
+  description = "inttest or production (matches Glue job pattern)"
+  type        = string
+  default     = "inttest"
+}
+
+variable "create_secret" {
+  description = "Create new secret (true) or use existing (false)"
+  type        = bool
+  default     = true
+}
+
+variable "salesforce_client_id" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "salesforce_username" {
+  type    = string
+  default = ""
 }
 
 variable "salesforce_private_key" {
@@ -17,95 +46,59 @@ variable "salesforce_private_key" {
 }
 
 ################################################################################
-# Bedrock KB Salesforce Connector credentials (DISABLED)
-# Using S3 + AppFlow approach instead of direct Salesforce connector
-# Uncomment if you want to use Bedrock's native Salesforce connector
-################################################################################
-# variable "salesforce_kb_consumer_key" {
-#   type        = string
-#   default     = ""
-#   description = "Salesforce Connected App Consumer Key for Bedrock KB connector"
-# }
-# 
-# variable "salesforce_kb_consumer_secret" {
-#   type        = string
-#   default     = ""
-#   sensitive   = true
-#   description = "Salesforce Connected App Consumer Secret for Bedrock KB connector"
-# }
-# 
-# variable "salesforce_kb_auth_url" {
-#   type        = string
-#   default     = ""
-#   description = "Salesforce OAuth token URL (e.g., https://yourorg.my.salesforce.com/services/oauth2/token)"
-# }
-
-################################################################################
-# Salesforce Private Key (for JWT Bearer Token flow - Lambda)
+# Secret Naming (matches Glue job convention)
 ################################################################################
 
-resource "aws_secretsmanager_secret" "salesforce_private_key" {
-  name        = "${var.project_name}/salesforce/jwt-private-key"
-  description = "Salesforce JWT Bearer Token private key"
+locals {
+  # Glue pattern: salesforce-{environment}-sandbox-jwt or salesforce-production-jwt
+  secret_name = var.salesforce_environment == "production" ? "salesforce-production-jwt" : "salesforce-${var.salesforce_environment}-sandbox-jwt"
+}
+
+################################################################################
+# Create New Secret (for sandbox5jan27 and new accounts)
+################################################################################
+
+resource "aws_secretsmanager_secret" "salesforce_jwt" {
+  count       = var.create_secret ? 1 : 0
+  name        = local.secret_name
+  description = "Salesforce JWT credentials for ${var.salesforce_environment} - {client_id, username, private_key}"
 
   tags = {
-    Project   = var.project_name
-    ManagedBy = "Terraform"
+    Project     = var.project_name
+    Environment = var.salesforce_environment
+    ManagedBy   = "Terraform"
   }
 }
 
-resource "aws_secretsmanager_secret_version" "salesforce_private_key" {
-  count         = var.salesforce_private_key != "" ? 1 : 0
-  secret_id     = aws_secretsmanager_secret.salesforce_private_key.id
-  secret_string = var.salesforce_private_key
+resource "aws_secretsmanager_secret_version" "salesforce_jwt" {
+  count     = var.create_secret && var.salesforce_client_id != "" ? 1 : 0
+  secret_id = aws_secretsmanager_secret.salesforce_jwt[0].id
+  secret_string = jsonencode({
+    client_id   = var.salesforce_client_id
+    username    = var.salesforce_username
+    private_key = var.salesforce_private_key
+  })
 }
 
 ################################################################################
-# Salesforce KB Connector Secret (DISABLED)
-# Using S3 + AppFlow approach instead of direct Salesforce connector
-# Uncomment if you want to use Bedrock's native Salesforce connector
+# Reference Existing Secret (for main account with Glue secrets)
 ################################################################################
-# resource "aws_secretsmanager_secret" "salesforce_kb_connector" {
-#   count       = var.salesforce_kb_consumer_key != "" ? 1 : 0
-#   name        = "${var.project_name}/salesforce/kb-connector-credentials"
-#   description = "Salesforce OAuth2 Client Credentials for Bedrock KB Salesforce connector"
-#
-#   tags = {
-#     Project   = var.project_name
-#     ManagedBy = "Terraform"
-#     Purpose   = "Bedrock Knowledge Base Salesforce Data Source"
-#   }
-# }
-#
-# resource "aws_secretsmanager_secret_version" "salesforce_kb_connector" {
-#   count     = var.salesforce_kb_consumer_key != "" ? 1 : 0
-#   secret_id = aws_secretsmanager_secret.salesforce_kb_connector[0].id
-#   secret_string = jsonencode({
-#     consumerKey       = var.salesforce_kb_consumer_key
-#     consumerSecret    = var.salesforce_kb_consumer_secret
-#     authenticationUrl = var.salesforce_kb_auth_url
-#   })
-# }
+
+data "aws_secretsmanager_secret" "existing_jwt" {
+  count = var.create_secret ? 0 : 1
+  name  = local.secret_name
+}
 
 ################################################################################
 # Outputs
 ################################################################################
 
-output "private_key_arn" {
-  value = aws_secretsmanager_secret.salesforce_private_key.arn
+output "secret_arn" {
+  description = "ARN of Salesforce JWT secret"
+  value       = var.create_secret ? aws_secretsmanager_secret.salesforce_jwt[0].arn : data.aws_secretsmanager_secret.existing_jwt[0].arn
 }
 
-output "private_key_name" {
-  value = aws_secretsmanager_secret.salesforce_private_key.name
-}
-
-# Disabled - using S3 + AppFlow approach
-# output "kb_connector_secret_arn" {
-#   value       = length(aws_secretsmanager_secret.salesforce_kb_connector) > 0 ? aws_secretsmanager_secret.salesforce_kb_connector[0].arn : ""
-#   description = "ARN of Salesforce KB connector secret for Bedrock data source"
-# }
-
-output "kb_connector_secret_arn" {
-  value       = ""
-  description = "Disabled - using S3 + AppFlow approach instead of Salesforce connector"
+output "secret_name" {
+  description = "Name of Salesforce JWT secret"
+  value       = local.secret_name
 }
