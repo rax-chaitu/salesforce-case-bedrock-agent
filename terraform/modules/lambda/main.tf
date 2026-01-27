@@ -101,8 +101,8 @@ resource "aws_lambda_function" "api" {
   timeout          = var.lambda_timeout
   memory_size      = 512
 
-  # Limit concurrency to avoid Bedrock throttling (10 parallel = ~10 cases/15s)
-  reserved_concurrent_executions = 10
+  # Limit concurrency to avoid Bedrock throttling (~5 RPM quota)
+  reserved_concurrent_executions = 2
 
   tracing_config {
     mode = "Active"
