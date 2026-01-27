@@ -75,9 +75,10 @@ resource "null_resource" "pip_install" {
   provisioner "local-exec" {
     command = <<-EOT
       cd ${path.module}/../../../lambda/case_processor
-      rm -rf package
-      mkdir -p package
-      pip3 install -r requirements.txt -t package/ --platform manylinux2014_x86_64 --only-binary=:all:
+      rm -rf package lambda_package
+      mkdir -p lambda_package
+      pip3 install -r requirements.txt -t lambda_package/ --platform manylinux2014_x86_64 --python-version 3.11 --only-binary=:all:
+      cp *.py lambda_package/
     EOT
   }
 }
@@ -85,7 +86,7 @@ resource "null_resource" "pip_install" {
 data "archive_file" "lambda_zip" {
   depends_on  = [null_resource.pip_install]
   type        = "zip"
-  source_dir  = "${path.module}/../../../lambda/case_processor"
+  source_dir  = "${path.module}/../../../lambda/case_processor/lambda_package"
   output_path = "${path.module}/lambda_function.zip"
   excludes    = ["__pycache__", "*.pyc", ".pytest_cache"]
 }
@@ -129,12 +130,6 @@ resource "aws_lambda_function" "api" {
     ManagedBy = "Terraform"
   }
 
-  # TODO: TEMPORARY - Remove after fixing pip install for Lambda packaging
-  # Added because manual Lambda deploy was needed to fix dependency issues.
-  # Once packaging is stable, remove this block to let Terraform manage Lambda code.
-  lifecycle {
-    ignore_changes = [filename, source_code_hash]
-  }
 }
 
 ################################################################################

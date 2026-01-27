@@ -40,6 +40,15 @@ resource "aws_bedrockagent_agent" "salesforce_agent" {
   agent_resource_role_arn = aws_iam_role.bedrock_agent_role.arn
   foundation_model        = var.foundation_model
 
+  # Enable memory for cross-session context
+  memory_configuration = [{
+    enabled_memory_types           = ["SESSION_SUMMARY"]
+    storage_days                   = 30
+    session_summary_configuration  = [{
+      max_recent_sessions = 20
+    }]
+  }]
+
   instruction = <<-EOT
     You are a Salesforce Case Analysis Agent with access to a Knowledge Base of closed cases.
 
@@ -86,7 +95,7 @@ resource "aws_bedrockagent_agent" "salesforce_agent" {
 
 variable "create_kb_association" {
   type    = bool
-  default = false  # KB already associated manually
+  default = true  # Create KB association via Terraform
 }
 
 resource "aws_bedrockagent_agent_knowledge_base_association" "kb_association" {
@@ -103,7 +112,8 @@ resource "aws_bedrockagent_agent_knowledge_base_association" "kb_association" {
 
 resource "null_resource" "prepare_agent" {
   depends_on = [
-    aws_bedrockagent_agent.salesforce_agent
+    aws_bedrockagent_agent.salesforce_agent,
+    aws_bedrockagent_agent_knowledge_base_association.kb_association
   ]
 
   triggers = {
