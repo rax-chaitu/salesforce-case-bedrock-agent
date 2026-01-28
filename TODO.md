@@ -51,3 +51,34 @@ Simply set `project_name = "sf-case-analysis"` in `terraform.tfvars` before firs
 - [ ] Test full E2E flow after rename
 - [ ] Update Salesforce Event Relay if EventBridge bus name changes
 - [ ] Document any manual steps needed for migration
+
+---
+
+## AppFlow Data Sync Optimization
+
+### Current Issue
+- AppFlow creates new timestamped files each run → duplicates in S3
+- S3 Vectors has **50MB limit** per data source
+
+### Recommended Setup
+
+1. **Configure AppFlow for Incremental Sync:**
+   - Aggregation: None (creates new timestamped file each run)
+   - Filter: `LastModifiedDate >= LAST_N_DAYS:7`
+
+2. **Weekly Sync Strategy:**
+   - Each run creates small file with last 7 days of closed cases
+   - Files accumulate: `cases-20260127T020000.json`, `cases-20260203T020000.json`
+   - Bedrock KB indexes all files in bucket
+
+3. **Initial Load (One-Time):**
+   - Remove `LAST_N_DAYS:7` filter
+   - Run AppFlow to get all historical closed cases
+   - Re-add filter for subsequent weekly runs
+
+4. **Monitor File Sizes:**
+   - S3 Vectors limit: **50MB per file** (not total bucket)
+   - Weekly files should be well under this
+   - Archive old files periodically if needed for cleanup
+
+See [docs/APPFLOW_KB_SYNC_SETUP.md](docs/APPFLOW_KB_SYNC_SETUP.md) for details.

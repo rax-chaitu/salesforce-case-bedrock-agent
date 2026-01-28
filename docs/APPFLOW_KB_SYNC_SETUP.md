@@ -25,6 +25,20 @@ Salesforce (KAV) → AppFlow → S3 Bucket → Bedrock KB (S3 Data Source) → A
 
 ---
 
+## ⚠️ S3 Vectors Limit: 50MB per File
+
+Bedrock S3 Vectors has a **50MB limit per file** (not total bucket). Each file must be under 50MB, but you can have many files.
+
+| Strategy | Pros | Cons |
+|----------|------|------|
+| Weekly incremental | Small files, history preserved | Many files over time |
+| Rolling window | Single file, simple | Loses old data |
+| Category-based splits | Organized by type | Multiple AppFlow flows |
+
+**Recommended**: Weekly incremental sync with `LAST_N_DAYS:7` filter (see Step 3.2)
+
+---
+
 ## Step 1: Create S3 Bucket (if not exists)
 
 ```bash
@@ -82,30 +96,44 @@ aws s3 mb s3://your-kb-bucket --region us-east-1 --profile YOUR_PROFILE
    - Destination: **Amazon S3**
    - Bucket: `your-kb-bucket`
    - File format: **JSON** (recommended) or CSV
+   - **S3 bucket prefix**: `cases/` (optional, for organization)
+   - **Aggregation**: **None** (creates timestamped files each run)
 
 5. Configure flow trigger:
    - Trigger type: **Run on demand**
    - (Step Functions will trigger this)
 
 6. Configure field mapping:
-   - Map all fields OR select specific fields:
+   - Map essential fields only (reduces file size):
      - `Id`
-     - `Title`
-     - `Summary`
-     - `ArticleNumber`
-     - `UrlName`
-     - `PublishStatus`
-     - `Answer__c` (or your rich text field)
-     - `LastModifiedDate`
+     - `CaseNumber`
+     - `Subject`
+     - `Description`
+     - `Status`
+     - `Priority`
+     - `Resolution__c`
+     - `Close_Notes__c`
+     - `ClosedDate`
+     - `Category__c` (if exists)
 
-7. Add filters (IMPORTANT):
-   - Field: `PublishStatus`
-   - Condition: `Equals`
-   - Value: `Online`
-   
-   - Field: `Language`
-   - Condition: `Equals`
-   - Value: `en_US`
+7. **Add filters (CRITICAL for 50MB limit)**:
+
+   **For Closed Cases (Incremental Weekly Sync):**
+   ```
+   Status = 'Closed'
+   AND LastModifiedDate >= LAST_N_DAYS:7    (weekly incremental)
+   AND Resolution__c != null                 (only cases with resolutions)
+   ```
+
+   **For Knowledge Articles (KAV):**
+   ```
+   PublishStatus = 'Online'
+   AND Language = 'en_US'
+   ```
+
+   > 💡 **Strategy**: Each weekly sync creates a small file (~few KB-MB). Files accumulate in S3, Bedrock KB indexes all of them. Monitor total bucket size to stay under 50MB.
+
+   > ⚠️ **First Run**: For initial load, temporarily remove `LAST_N_DAYS:7` filter to get all historical closed cases, then re-add for subsequent runs.
 
 8. **Save and activate** the flow
 
