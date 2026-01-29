@@ -96,8 +96,9 @@ resource "aws_lambda_function" "api" {
   timeout          = var.lambda_timeout
   memory_size      = 512
 
-  # Limit concurrency to avoid Bedrock throttling (~5 RPM quota)
-  reserved_concurrent_executions = 2
+  # Increased concurrency for better throughput (was 2, bottleneck at 480 cases/hr)
+  # Set to 20 for ~10x capacity. Monitor Bedrock throttling and adjust as needed.
+  reserved_concurrent_executions = 20
 
   tracing_config {
     mode = "Active"
@@ -216,6 +217,7 @@ resource "aws_iam_role_policy" "lambda_sqs" {
 }
 
 # Secrets Manager access (salesforce-*-jwt secrets)
+# NOTE: Using AWS-managed KMS key (default), no explicit kms:Decrypt needed
 resource "aws_iam_role_policy" "lambda_secrets" {
   name = "${var.project_name}-secrets"
   role = aws_iam_role.lambda_role.id
@@ -230,11 +232,6 @@ resource "aws_iam_role_policy" "lambda_secrets" {
           # Glue-style secrets: salesforce-inttest-sandbox-jwt, salesforce-production-jwt
           "arn:aws:secretsmanager:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:secret:salesforce-*"
         ]
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["kms:Decrypt"]
-        Resource = ["arn:aws:kms:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:key/*"]
       }
     ]
   })

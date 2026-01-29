@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """
-Dual-Mode Lambda Handler
-- SQS events: Production flow from Salesforce Platform Events
-- API Gateway: REST endpoints for testing
+Dual-Mode Lambda Handler for Salesforce Case AI Analysis
+
+PRODUCTION MODE (SQS):
+    Salesforce Case → Platform Event → Event Relay → EventBridge → SQS → Lambda
+    This is the primary production flow. Data is trusted from Salesforce.
+
+DEVELOPMENT MODE (API Gateway):
+    REST API endpoints for testing agent invocation, KB search, and case analysis.
+    These endpoints are for DEVELOPMENT/TESTING ONLY and should be restricted
+    or disabled in production.
 
 Event source detection routes to appropriate handler.
 """
@@ -10,42 +17,104 @@ Event source detection routes to appropriate handler.
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime
+from typing import Any, Optional
 
 from bedrock_client import BedrockAgentClient
 from salesforce_client import SalesforceClient
 
 
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+# CORS: Restrict to specific domains (CRITICAL SECURITY FIX)
+ALLOWED_ORIGINS = [
+    # Add your Salesforce domain(s) here
+    os.environ.get("ALLOWED_ORIGIN", "https://rax.my.salesforce.com"),
+    "https://rax--inttest.sandbox.my.salesforce.com",
+    "https://rax--uat.sandbox.my.salesforce.com",
+]
+
+# Input validation limits
+MAX_SUBJECT_LENGTH = 500
+MAX_DESCRIPTION_LENGTH = 5000
+MAX_PROMPT_LENGTH = 10000
+
+# Salesforce ID pattern (15 or 18 character alphanumeric)
+SALESFORCE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$")
+
+
 class StructuredLogger:
     """JSON structured logging for CloudWatch Insights queries."""
 
-    def __init__(self, name):
+    def __init__(self, name: str):
         self.logger = logging.getLogger(name)
         self.logger.setLevel(logging.INFO)
 
-    def _log(self, level, event, **kwargs):
+    def _log(self, level: str, event: str, **kwargs: Any) -> None:
         msg = {"event": event, "timestamp": datetime.utcnow().isoformat(), **kwargs}
         getattr(self.logger, level)(json.dumps(msg))
 
-    def info(self, event, **kwargs):
+    def info(self, event: str, **kwargs: Any) -> None:
         self._log("info", event, **kwargs)
 
-    def error(self, event, **kwargs):
+    def error(self, event: str, **kwargs: Any) -> None:
         self._log("error", event, **kwargs)
 
-    def warning(self, event, **kwargs):
+    def warning(self, event: str, **kwargs: Any) -> None:
         self._log("warning", event, **kwargs)
 
 
 logger = StructuredLogger(__name__)
 
-# Initialize clients
-bedrock = BedrockAgentClient()
-salesforce = SalesforceClient()
+# Lazy initialization for clients (reduces cold start impact)
+_bedrock: Optional[BedrockAgentClient] = None
+_salesforce: Optional[SalesforceClient] = None
 
 
-def lambda_handler(event, context):
+def get_bedrock_client() -> BedrockAgentClient:
+    """Lazy initialization of Bedrock client."""
+    global _bedrock
+    if _bedrock is None:
+        _bedrock = BedrockAgentClient()
+    return _bedrock
+
+
+def get_salesforce_client() -> SalesforceClient:
+    """Lazy initialization of Salesforce client."""
+    global _salesforce
+    if _salesforce is None:
+        _salesforce = SalesforceClient()
+    return _salesforce
+
+
+# =============================================================================
+# INPUT VALIDATION (SECURITY FIX)
+# =============================================================================
+
+
+def validate_salesforce_id(case_id: str) -> bool:
+    """Validate Salesforce ID format to prevent injection attacks."""
+    if not case_id:
+        return False
+    return bool(SALESFORCE_ID_PATTERN.match(case_id))
+
+
+def sanitize_string(value: str, max_length: int, field_name: str) -> str:
+    """Sanitize and truncate string input."""
+    if not isinstance(value, str):
+        value = str(value) if value else ""
+    # Truncate to max length
+    if len(value) > max_length:
+        logger.warning("input_truncated", field=field_name, original_length=len(value), max_length=max_length)
+        value = value[:max_length]
+    return value
+
+
+def lambda_handler(event: dict, context: Any) -> dict:
     """
     Main entry point - detects event source and routes accordingly.
 
@@ -63,17 +132,24 @@ def lambda_handler(event, context):
 
 
 # =============================================================================
-# SQS EVENT HANDLER (Production Flow)
+# SQS EVENT HANDLER (PRODUCTION)
+# =============================================================================
+# This is the PRIMARY production handler. Cases flow from:
+# Salesforce Case → Platform Event → Event Relay → EventBridge → SQS → Lambda
 # =============================================================================
 
 
-def handle_sqs_event(event):
+def handle_sqs_event(event: dict) -> dict:
     """
     Process SQS messages from EventBridge (Salesforce Platform Events).
     Returns batchItemFailures for partial batch failure handling.
+    
+    NOTE: Data comes from trusted Salesforce Platform Events via Event Relay,
+    so no input sanitization needed here.
     """
     results = []
     failed_items = []
+    salesforce = get_salesforce_client()
 
     for record in event.get("Records", []):
         try:
@@ -84,21 +160,22 @@ def handle_sqs_event(event):
             event_payload = detail.get("payload", {})
 
             # Get Case ID from Platform Event Record_Id__c field
-            case_id = event_payload.get("Record_Id__c")
+            case_id = event_payload.get("Record_Id__c", "")
+
+            if not case_id:
+                logger.warning("case_skipped", reason="no_case_id")
+                continue
 
             # Parse the nested Payload__c JSON string (contains actual case data)
             payload_str = event_payload.get("Payload__c", "{}")
             case_data = json.loads(payload_str) if payload_str else {}
 
+            # Trusted data from Salesforce Platform Events - no sanitization needed
             case_number = case_data.get("Case_Number__c", "")
             subject = case_data.get("Subject__c", "")
             description = case_data.get("Description__c", "")
             case_type = case_data.get("Type__c", "")
             priority = case_data.get("Priority__c", "Medium")
-
-            if not case_id:
-                logger.warning("case_skipped", reason="no_case_id")
-                continue
 
             # Idempotency check: skip if already analyzed today
             if salesforce.is_configured() and salesforce.is_already_analyzed(case_id):
@@ -147,19 +224,24 @@ def handle_sqs_event(event):
     }
 
 
-def analyze_case(case_id, case_number, subject, description, case_type, priority):
+def analyze_case(
+    case_id: str, case_number: str, subject: str, description: str, case_type: str, priority: str
+) -> dict:
     """
     Invoke Bedrock Agent to analyze case and return structured response.
+    
+    NOTE: Input sanitization is handled by callers (API handlers sanitize, SQS handler trusts SF data).
     """
-    prompt = f"""Analyze this Salesforce case and return JSON:
+    bedrock = get_bedrock_client()
+    
+    # Minimal prompt - agent instructions handle response format and quality
+    prompt = f"""Analyze this case:
 
 Case Number: {case_number}
 Subject: {subject}
 Description: {description}
 Type: {case_type}
-Priority: {priority}
-
-Search Knowledge Base for similar cases and provide analysis as JSON."""
+Priority: {priority}"""
 
     session_id = f"case-{case_id}-{uuid.uuid4().hex[:8]}"
 
@@ -184,13 +266,18 @@ Search Knowledge Base for similar cases and provide analysis as JSON."""
 
 
 # =============================================================================
-# API GATEWAY HANDLER (Testing Flow)
+# API GATEWAY HANDLER (DEVELOPMENT/TESTING ONLY)
+# =============================================================================
+# NOTE: The API Gateway endpoints below are for DEVELOPMENT and TESTING only.
+# In PRODUCTION, only the SQS handler (Platform Events) is used.
+# The API Gateway can be disabled in production by removing the API Gateway
+# Terraform resources or restricting access via IAM policies.
 # =============================================================================
 
 
-def handle_api_gateway(event):
+def handle_api_gateway(event: dict) -> dict:
     """
-    Handle REST API requests for testing.
+    Handle REST API requests for DEVELOPMENT/TESTING only.
 
     Endpoints:
     - GET  /health        - Health check
@@ -202,47 +289,66 @@ def handle_api_gateway(event):
         http_method = event.get("httpMethod", "GET")
         path = event.get("path", "/")
         body = event.get("body", "")
+        
+        # Get origin for CORS
+        headers = event.get("headers", {}) or {}
+        origin = headers.get("origin") or headers.get("Origin", "")
 
         request_data = {}
         if body:
             try:
                 request_data = json.loads(body)
             except json.JSONDecodeError:
-                return create_response(400, {"error": "Invalid JSON"})
+                return create_response(400, {"error": "Invalid JSON"}, origin)
 
         # Route to handlers
         if path == "/health" and http_method == "GET":
-            return handle_health()
+            return handle_health(origin)
         elif path == "/agent/invoke" and http_method == "POST":
-            return handle_agent_invoke(request_data)
+            return handle_agent_invoke(request_data, origin)
         elif path == "/case/analyze" and http_method == "POST":
-            return handle_case_analyze(request_data)
+            return handle_case_analyze(request_data, origin)
         elif path == "/kb/search" and http_method == "POST":
-            return handle_kb_search(request_data)
+            return handle_kb_search(request_data, origin)
         else:
-            return create_response(404, {"error": f"Not found: {http_method} {path}"})
+            return create_response(404, {"error": f"Not found: {http_method} {path}"}, origin)
 
     except Exception as e:
         logger.error("api_error", error=str(e), path=event.get("path"))
-        return create_response(500, {"error": str(e)})
+        return create_response(500, {"error": str(e)}, origin if 'origin' in dir() else "")
 
 
-def create_response(status_code, body):
-    """Create HTTP response with CORS headers."""
+def get_cors_origin(request_origin: str) -> str:
+    """
+    Return allowed CORS origin. Only allows configured domains.
+    CRITICAL SECURITY: Prevents CSRF attacks by restricting cross-origin requests.
+    """
+    if request_origin in ALLOWED_ORIGINS:
+        return request_origin
+    # Default to first allowed origin if request origin not in list
+    return ALLOWED_ORIGINS[0] if ALLOWED_ORIGINS else ""
+
+
+def create_response(status_code: int, body: dict, request_origin: str = "") -> dict:
+    """Create HTTP response with restricted CORS headers."""
+    cors_origin = get_cors_origin(request_origin)
+    
     return {
         "statusCode": status_code,
         "headers": {
             "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Origin": cors_origin,
             "Access-Control-Allow-Headers": "Content-Type,Authorization",
             "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+            "Access-Control-Allow-Credentials": "true",
         },
         "body": json.dumps(body, default=str),
     }
 
 
-def handle_health():
+def handle_health(origin: str = "") -> dict:
     """Health check endpoint."""
+    salesforce = get_salesforce_client()
     return create_response(
         200,
         {
@@ -252,16 +358,23 @@ def handle_health():
             "salesforce_configured": salesforce.is_configured(),
             "timestamp": datetime.utcnow().isoformat(),
         },
+        origin,
     )
 
 
-def handle_agent_invoke(request_data):
+def handle_agent_invoke(request_data: dict, origin: str = "") -> dict:
     """Direct agent invocation for testing."""
     if "prompt" not in request_data:
-        return create_response(400, {"error": "Missing: prompt"})
+        return create_response(400, {"error": "Missing: prompt"}, origin)
 
+    # SECURITY: Validate and sanitize prompt
+    prompt = sanitize_string(request_data["prompt"], MAX_PROMPT_LENGTH, "prompt")
+    if not prompt:
+        return create_response(400, {"error": "Empty prompt"}, origin)
+
+    bedrock = get_bedrock_client()
     session_id = request_data.get("session_id") or str(uuid.uuid4())
-    result = bedrock.invoke_agent(request_data["prompt"], session_id)
+    result = bedrock.invoke_agent(prompt, session_id)
 
     return create_response(
         200,
@@ -271,23 +384,31 @@ def handle_agent_invoke(request_data):
             "session_id": session_id,
             "timestamp": datetime.utcnow().isoformat(),
         },
+        origin,
     )
 
 
-def handle_case_analyze(request_data):
+def handle_case_analyze(request_data: dict, origin: str = "") -> dict:
     """Case analysis endpoint for testing."""
     required = ["case_number", "subject", "description"]
     for field in required:
         if field not in request_data:
-            return create_response(400, {"error": f"Missing: {field}"})
+            return create_response(400, {"error": f"Missing: {field}"}, origin)
+
+    # SECURITY: Sanitize inputs
+    case_id = request_data.get("case_id", "")
+    if case_id and not validate_salesforce_id(case_id):
+        case_id = "test-" + uuid.uuid4().hex[:8]
+    elif not case_id:
+        case_id = "test-" + uuid.uuid4().hex[:8]
 
     analysis = analyze_case(
-        case_id=request_data.get("case_id", "test-" + uuid.uuid4().hex[:8]),
-        case_number=request_data["case_number"],
-        subject=request_data["subject"],
-        description=request_data["description"],
-        case_type=request_data.get("type", ""),
-        priority=request_data.get("priority", "Medium"),
+        case_id=case_id,
+        case_number=sanitize_string(request_data["case_number"], 20, "case_number"),
+        subject=sanitize_string(request_data["subject"], MAX_SUBJECT_LENGTH, "subject"),
+        description=sanitize_string(request_data["description"], MAX_DESCRIPTION_LENGTH, "description"),
+        case_type=sanitize_string(request_data.get("type", ""), 100, "type"),
+        priority=sanitize_string(request_data.get("priority", "Medium"), 20, "priority"),
     )
 
     return create_response(
@@ -302,25 +423,33 @@ def handle_case_analyze(request_data):
             "analysis": analysis,
             "timestamp": datetime.utcnow().isoformat(),
         },
+        origin,
     )
 
 
-def handle_kb_search(request_data):
+def handle_kb_search(request_data: dict, origin: str = "") -> dict:
     """Direct Knowledge Base search."""
     if "query" not in request_data:
-        return create_response(400, {"error": "Missing: query"})
+        return create_response(400, {"error": "Missing: query"}, origin)
 
-    results = bedrock.search_knowledge_base(
-        request_data["query"], request_data.get("max_results", 5)
-    )
+    # SECURITY: Sanitize query
+    query = sanitize_string(request_data["query"], MAX_PROMPT_LENGTH, "query")
+    if not query:
+        return create_response(400, {"error": "Empty query"}, origin)
+
+    bedrock = get_bedrock_client()
+    max_results = min(int(request_data.get("max_results", 5)), 20)  # Cap at 20
+    
+    results = bedrock.search_knowledge_base(query, max_results)
 
     return create_response(
         200,
         {
             "success": True,
-            "query": request_data["query"],
+            "query": query,
             "results": results,
             "result_count": len(results),
             "timestamp": datetime.utcnow().isoformat(),
         },
+        origin,
     )

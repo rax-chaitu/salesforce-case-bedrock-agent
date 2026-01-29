@@ -17,6 +17,7 @@ import logging
 import os
 import time
 from datetime import datetime
+from typing import Any, Optional
 
 import boto3
 import jwt
@@ -37,25 +38,25 @@ class SalesforceClient:
     4. Connect using simple-salesforce with access token
     """
     
-    def __init__(self):
-        self.secret_name = os.environ.get("SALESFORCE_SECRET_NAME", "")
-        self.environment = os.environ.get("SALESFORCE_ENVIRONMENT", "inttest")
+    def __init__(self) -> None:
+        self.secret_name: str = os.environ.get("SALESFORCE_SECRET_NAME", "")
+        self.environment: str = os.environ.get("SALESFORCE_ENVIRONMENT", "inttest")
         
         # Auth URL based on environment (matches Glue pattern)
-        self.auth_url = (
+        self.auth_url: str = (
             "https://login.salesforce.com"
             if self.environment == "production"
             else "https://test.salesforce.com"
         )
         
-        self._sf = None
-        self._credentials = None
+        self._sf: Optional[Salesforce] = None
+        self._credentials: Optional[dict[str, Any]] = None
 
     def is_configured(self) -> bool:
         """Check if Salesforce integration is configured."""
         return bool(self.secret_name)
 
-    def _get_credentials(self) -> dict:
+    def _get_credentials(self) -> dict[str, Any]:
         """
         Fetch credentials from Secrets Manager.
         Format: { "client_id", "username", "private_key" }
@@ -67,7 +68,7 @@ class SalesforceClient:
             logger.info(f"Loaded SF credentials for: {self._credentials.get('username', 'unknown')}")
         return self._credentials
 
-    def _get_access_token(self) -> dict:
+    def _get_access_token(self) -> dict[str, Any]:
         """
         Exchange JWT for Salesforce access token.
         Returns dict with access_token and instance_url.
@@ -75,7 +76,7 @@ class SalesforceClient:
         creds = self._get_credentials()
         
         # Create JWT (same as Glue job)
-        claims = {
+        claims: dict[str, Any] = {
             "iss": creds["client_id"],
             "sub": creds["username"],
             "aud": self.auth_url,
@@ -94,11 +95,11 @@ class SalesforceClient:
         )
         response.raise_for_status()
         
-        token_data = response.json()
+        token_data: dict[str, Any] = response.json()
         logger.info(f"Got SF token, instance: {token_data.get('instance_url', 'unknown')}")
         return token_data
 
-    def _get_connection(self) -> Salesforce:
+    def _get_connection(self) -> Optional[Salesforce]:
         """Get or create Salesforce connection."""
         if not self._sf and self.is_configured():
             token_data = self._get_access_token()
@@ -113,9 +114,14 @@ class SalesforceClient:
         """
         Check if case was already analyzed today to prevent duplicate processing.
         Returns True if Agent_Analysis_Status__c = 'Completed' AND AI_Analyzed_Date__c is today.
+        
+        NOTE: case_id comes from trusted Salesforce Platform Events, no validation needed.
         """
         sf = self._get_connection()
         if sf is None:
+            return False
+
+        if not case_id:
             return False
 
         try:
@@ -135,7 +141,7 @@ class SalesforceClient:
         except Exception:
             return False
 
-    def update_case_analysis(self, case_id: str, analysis: dict) -> bool:
+    def update_case_analysis(self, case_id: str, analysis: dict[str, Any]) -> bool:
         """
         Update Salesforce Case with AI analysis results.
 
@@ -152,7 +158,7 @@ class SalesforceClient:
             return False
 
         try:
-            update_data = {
+            update_data: dict[str, Any] = {
                 "AI_Analysis__c": self._format_analysis(analysis),
                 "AI_Suggestions__c": self._format_steps(analysis.get("steps", [])),
                 "Self_Resolvable__c": analysis.get("self_resolvable", False),
@@ -179,12 +185,15 @@ class SalesforceClient:
                 )
             return False
 
-    def _format_analysis(self, analysis: dict) -> str:
+    def _format_analysis(self, analysis: dict[str, Any]) -> str:
         """Format analysis dict as readable text for Long Text Area field."""
-        parts = []
+        parts: list[str] = []
 
         if analysis.get("summary"):
             parts.append(f"## Summary\n{analysis['summary']}")
+
+        if analysis.get("root_cause"):
+            parts.append(f"## Root Cause\n{analysis['root_cause']}")
 
         if analysis.get("recommendation"):
             parts.append(f"## Recommendation\n{analysis['recommendation']}")
@@ -192,15 +201,24 @@ class SalesforceClient:
         if analysis.get("estimated_resolution"):
             parts.append(f"## Estimated Resolution\n{analysis['estimated_resolution']}")
 
+        if analysis.get("escalation_needed") and analysis.get("escalation_reason"):
+            parts.append(f"## Escalation Required\n{analysis['escalation_reason']}")
+
+        if analysis.get("category"):
+            parts.append(f"## Category\n{analysis['category']}")
+
+        # Always add AI disclaimer at the end
+        parts.append("---\n⚠️ **AI-Generated Analysis** - Please verify before taking action.")
+
         return "\n\n".join(parts) if parts else json.dumps(analysis, indent=2)
 
-    def _format_steps(self, steps: list) -> str:
+    def _format_steps(self, steps: list[str]) -> str:
         """Format steps list as numbered text."""
         if not steps:
             return ""
         return "\n".join(f"{i + 1}. {step}" for i, step in enumerate(steps))
 
-    def _format_similar_cases(self, cases: list) -> str:
+    def _format_similar_cases(self, cases: list[str]) -> str:
         """Format similar cases as bullet list."""
         if not cases:
             return ""

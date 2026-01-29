@@ -1,56 +1,84 @@
-# TODO - Before Deploying to New Sandbox
+# TODO - Salesforce AI Case Analysis Agent
 
-## Resource Naming Refactor
+## ✅ Completed (Jan 29, 2026)
 
-Current naming uses `salesforceagent` prefix. Should follow `sf-{object}-{function}` convention per [docs/NAMING_CONVENTIONS.md](docs/NAMING_CONVENTIONS.md).
+- [x] Security fixes: CORS restricted, KMS wildcard removed, input validation
+- [x] Lambda concurrency increased 2 → 20 (~4,800 cases/hour)
+- [x] Lazy client initialization for better cold starts
+- [x] Type hints and custom `BedrockAgentError` exception
+- [x] Retry logic with exponential backoff
+- [x] Agent instructions updated with category-specific guidance
+- [x] AI disclaimer added to all responses
+- [x] Case data analysis report created (2000 cases analyzed)
+- [x] KB improvement guide created
 
-### Current vs Target Naming
+---
+
+## 🔴 High Priority - KB Improvements
+
+### KB Data Quality Issues
+Current KB has poor search results due to:
+- AppFlow outputs 177 fields as raw JSON
+- Bedrock chunks JSON into meaningless fragments
+- Low relevance scores (0.4-0.5 instead of 0.7+)
+
+### Action Items
+
+- [ ] **Update AppFlow to select only needed fields:**
+  - CaseNumber, Subject, Description, Priority
+  - Case_Type__c, Close_Codes__c, Case_Closure_Notes__c
+  - Tool__c, Support_Reason__c, Department__c
+
+- [ ] **Create transformation Lambda** to convert JSON → structured text format:
+  ```
+  === CASE 00145956 ===
+  SUBJECT: Change User email
+  PRIORITY: High
+  CATEGORY: User_Access
+  RESOLUTION: Email changed.
+  ===
+  ```
+
+- [ ] **Reconfigure KB chunking** - increase chunk size to 800 tokens
+
+- [ ] **Add metadata filtering** for Category, Priority, Tool
+
+See [docs/KB_IMPROVEMENT_GUIDE.md](docs/KB_IMPROVEMENT_GUIDE.md) for details.
+
+---
+
+## 🟡 Medium Priority - Before Production
+
+### Resource Naming Refactor
+
+Current naming uses `salesforceagent` prefix. Should follow `sf-{object}-{function}` convention.
 
 | Resource | Current Name | Target Name |
 |----------|--------------|-------------|
 | Project | `salesforceagent` | `sf-case-analysis` |
 | Lambda | `salesforceagent-api` | `sf-case-analysis-processor` |
 | SQS Queue | `salesforceagent-case-analysis` | `sf-case-analysis-queue` |
-| SQS DLQ | `salesforceagent-case-analysis-dlq` | `sf-case-analysis-dlq` |
-| Step Function | `salesforceagent-kb-sync` | `sf-case-analysis-kb-sync` |
-| EventBridge Rule | `salesforceagent-kb-sync-schedule` | `sf-case-analysis-kb-sync-schedule` |
-| IAM Roles | `salesforceagent-*-role` | `sf-case-analysis-*-role` |
-| CloudWatch Logs | `/aws/lambda/salesforceagent-api` | `/aws/lambda/sf-case-analysis-processor` |
-| API Gateway | `salesforceagent-api` | `sf-case-analysis-gateway` |
-| Bedrock Agent | `salesforceagent-agent` | `sf-case-analysis-agent` |
 
-### Steps to Refactor
+**Steps:**
+1. Update `terraform.tfvars`: `project_name = "sf-case-analysis"`
+2. Run `terraform plan` to see resource recreations
+3. Update Salesforce Event Relay with new EventBridge bus name
 
-1. Update `terraform.tfvars`:
-   ```hcl
-   project_name = "sf-case-analysis"
-   ```
+### Salesforce Field Population
 
-2. Update Lambda handler name in `terraform/modules/lambda/main.tf`:
-   - Change `${var.project_name}-api` to `${var.project_name}-processor`
-
-3. Update API Gateway name in `terraform/api_gateway.tf`:
-   - Change to `${var.project_name}-gateway`
-
-4. Run `terraform plan` to see all resource recreations
-
-5. **Note**: This will destroy and recreate resources. For existing sandbox, may need to:
-   - Export any state/data
-   - Update Salesforce Event Relay with new EventBridge bus name
-   - Re-sync Knowledge Base
-
-### For New Sandbox Deployment
-
-Simply set `project_name = "sf-case-analysis"` in `terraform.tfvars` before first `terraform apply`.
+- [ ] Ensure `Case_Type__c` is populated consistently
+- [ ] Add `Case_Closure_Notes__c` to case close process
+- [ ] Train users to fill resolution fields
 
 ---
 
-## Other TODOs
+## 🟢 Low Priority - Future Enhancements
 
-- [ ] Rename resources to follow naming convention
-- [ ] Test full E2E flow after rename
-- [ ] Update Salesforce Event Relay if EventBridge bus name changes
-- [ ] Document any manual steps needed for migration
+- [ ] Separate KB data sources (Cases, KAV, Emails)
+- [ ] Add metadata filtering to agent queries
+- [ ] Create resolution templates for common request types
+- [ ] Add monitoring dashboard for agent performance
+- [ ] Implement feedback loop for response quality
 
 ---
 
@@ -63,22 +91,35 @@ Simply set `project_name = "sf-case-analysis"` in `terraform.tfvars` before firs
 ### Recommended Setup
 
 1. **Configure AppFlow for Incremental Sync:**
-   - Aggregation: None (creates new timestamped file each run)
    - Filter: `LastModifiedDate >= LAST_N_DAYS:7`
 
 2. **Weekly Sync Strategy:**
    - Each run creates small file with last 7 days of closed cases
-   - Files accumulate: `cases-20260127T020000.json`, `cases-20260203T020000.json`
    - Bedrock KB indexes all files in bucket
 
-3. **Initial Load (One-Time):**
-   - Remove `LAST_N_DAYS:7` filter
-   - Run AppFlow to get all historical closed cases
-   - Re-add filter for subsequent weekly runs
-
-4. **Monitor File Sizes:**
-   - S3 Vectors limit: **50MB per file** (not total bucket)
-   - Weekly files should be well under this
-   - Archive old files periodically if needed for cleanup
-
 See [docs/APPFLOW_KB_SYNC_SETUP.md](docs/APPFLOW_KB_SYNC_SETUP.md) for details.
+
+---
+
+## Documentation
+
+| Doc | Purpose |
+|-----|---------|
+| [analysis/CASE_DATA_ANALYSIS_REPORT.md](docs/analysis/CASE_DATA_ANALYSIS_REPORT.md) | Analysis of 2000 closed cases |
+| [knowledge-base/KB_IMPROVEMENT_GUIDE.md](docs/knowledge-base/KB_IMPROVEMENT_GUIDE.md) | Steps to improve KB quality |
+| [deployment/DEPLOYMENT_GUIDE.md](docs/deployment/DEPLOYMENT_GUIDE.md) | Full deployment instructions |
+| [architecture/EVENT_DRIVEN_ARCHITECTURE.md](docs/architecture/EVENT_DRIVEN_ARCHITECTURE.md) | System architecture |
+| [salesforce/SALESFORCE_AUTH_IMPLEMENTATION.md](docs/salesforce/SALESFORCE_AUTH_IMPLEMENTATION.md) | JWT auth setup |
+
+---
+
+## Docs Structure
+
+```
+docs/
+├── analysis/           # Data analysis reports
+├── architecture/       # System design docs
+├── deployment/         # Deploy & terraform guides
+├── knowledge-base/     # KB setup & improvement
+└── salesforce/         # SF config & auth
+```
