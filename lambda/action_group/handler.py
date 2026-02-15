@@ -30,6 +30,7 @@ def search_similar_cases(params):
     """Search SF for similar closed cases by keywords and/or support reason."""
     keywords = params.get("keywords", "")
     support_reason = params.get("support_reason", "")
+    tool = params.get("tool", "")
     max_results = min(int(params.get("max_results", 10)), 50)
 
     sf = get_sf()
@@ -50,6 +51,10 @@ def search_similar_cases(params):
     elif keyword_conditions:
         # No support_reason — use keywords only
         conditions.append(f"({' OR '.join(keyword_conditions)})")
+
+    if tool:
+        safe_tool = tool.replace("'", "\\'")
+        conditions.append(f"Tool__c = '{safe_tool}'")
 
     where = " AND ".join(conditions)
     query = (

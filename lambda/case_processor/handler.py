@@ -250,8 +250,10 @@ def analyze_case(case_id: str, case_data: dict) -> dict:
     except Exception as e:
         logger.warning("ka_search_failed", error=str(e))
 
+    tool = case_data.get("Tool__c", case_data.get("Tool", ""))
+
     prompt = f"""Analyze this Salesforce case. Use these search parameters:
-- searchSimilarCases: keywords="{keywords}", support_reason="{support_reason}"
+- searchSimilarCases: keywords="{keywords}", support_reason="{support_reason}", tool="{tool}"
 - searchKnowledgeArticles: keywords="{keywords}"
 
 Case data:
@@ -369,7 +371,13 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
             merged.extend(str(s) for s in user_steps)
         analysis["steps"] = merged
         if user_steps:
-            analysis["self_resolvable"] = True
+            # Don't auto-set self_resolvable if user_steps are just "submit a case"
+            user_steps_text = " ".join(str(s).lower() for s in user_steps)
+            is_just_case_submission = any(p in user_steps_text for p in [
+                "create a new case", "submit the case", "create a case", "open a case"
+            ])
+            if not is_just_case_submission:
+                analysis["self_resolvable"] = True
     elif existing_steps:
         # Agent didn't use separate fields — check if user steps are missing
         steps_text = " ".join(str(s) for s in existing_steps).lower()

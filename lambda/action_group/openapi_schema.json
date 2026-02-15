@@ -27,6 +27,10 @@
                     "type": "string",
                     "description": "Optional Support_Reason__c value to filter by (e.g., 'Configuration', 'Implementation', 'User Access')."
                   },
+                  "tool": {
+                    "type": "string",
+                    "description": "Optional Tool__c value from the case to filter by (e.g., 'Revegy', 'QM', 'Salesforce', 'Sales Navigator'). When provided, only returns cases with the same tool."
+                  },
                   "max_results": {
                     "type": "integer",
                     "description": "Maximum number of similar cases to return (1-50, default 10).",

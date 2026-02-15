@@ -19,15 +19,32 @@
 - [x] Deployed to InttestJune25 sandbox
 - [x] Resource naming refactored to `sf-case-analysis`
 - [x] Sandbox Refresh Guide + .gitignore cleanup
+- [x] Shared Lambda layers (`rackspace_sf_auth` + `rackspace_sf_queries`)
+- [x] Shared action group (generic SOQL query Lambda)
+- [x] Deterministic KA search (bypasses Nova Pro bad keyword selection)
+- [x] kb_articles scoring (threshold ≥2, fallback ≥1 top 3)
+- [x] Similar cases AND filter (`support_reason AND keywords`)
+- [x] Dual-path steps (`admin_steps` + `user_steps` with section headers)
+- [x] HTML step formatting (bold headers + numbered `<ol>` per section)
+- [x] Guardrail tuning (`PROMPT_ATTACK` HIGH→LOW)
+- [x] New sandbox deployment (account `783330585869`, profile `SANDBOX15FEB`)
+- [x] Conditional EventBridge (skip when `salesforce_event_source` empty)
+- [x] Guardrail `PROMPT_ATTACK` LOW in Terraform (no manual fix needed)
+- [x] Case-insensitive KB article dedup (no caps duplicates)
+- [x] Self_Resolvable auto-set true when `user_steps` exist
+- [x] Enforced all JSON fields as REQUIRED in prompt (fixes Nova Pro inconsistency)
+- [x] Raw agent response logging for debugging
+- [x] SF Event Relay created for new sandbox (`Case_AI_Analysis_15Feb__chn`)
+- [x] E2E flow verified on new sandbox (Client Partner test case — all fields populated)
 
 ---
 
 ## 🔴 High Priority
 
+- [ ] **Add Tool__c to similar cases AND filter** — Include `Tool__c` as additional AND condition in searchSimilarCases SOQL so Revegy cases don't match Salesforce cases etc.
 - [ ] **Re-add closed cases to KB** — AppFlow sync removed, only SOPs remain. `similar_cases` always empty until case data is re-ingested
 - [ ] **AppFlow field optimization** — Select only needed fields (CaseNumber, Subject, Description, Close_Codes__c, etc.) instead of all 177
 - [ ] **Transformation Lambda** — Convert AppFlow JSON → structured text for better KB chunking
-- [ ] **Complete inttest E2E verification** — Start Event Relay, test full case flow
 
 ---
 
