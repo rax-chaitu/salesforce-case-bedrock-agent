@@ -1,125 +1,48 @@
 # TODO - Salesforce AI Case Analysis Agent
 
-## ✅ Completed (Jan 29, 2026)
+## ✅ Completed
 
 - [x] Security fixes: CORS restricted, KMS wildcard removed, input validation
-- [x] Lambda concurrency increased 2 → 20 (~4,800 cases/hour)
-- [x] Lazy client initialization for better cold starts
-- [x] Type hints and custom `BedrockAgentError` exception
-- [x] Retry logic with exponential backoff
-- [x] Agent instructions updated with category-specific guidance
-- [x] AI disclaimer added to all responses
-- [x] Case data analysis report created (2000 cases analyzed)
-- [x] KB improvement guide created
+- [x] Lambda concurrency increased 2 → 20
+- [x] Lazy client initialization, type hints, retry logic
+- [x] Agent instructions with category-specific guidance + AI disclaimer
+- [x] KB-first agent instructions + anti-hallucination rules
+- [x] 11 additional case fields, description limit 32K
+- [x] KB source citations (`kb_articles` with real SOP names)
+- [x] JSON response parsing with regex fallback
+- [x] Plain text formatting + HTML hyperlinks in Similar Cases
+- [x] User permission awareness (admin vs self-service)
+- [x] AI Feedback loop (`AI_Feedback__c` + `AI_Feedback_Comments__c`)
+- [x] `AI_Analysis_Status__c` field (renamed from Agent_Analysis_Status__c)
+- [x] Permission set `AI_Case_Analysis_User`
+- [x] SF health check in `/health` endpoint (tests JWT auth)
+- [x] Deployed to InttestJune25 sandbox
+- [x] Resource naming refactored to `sf-case-analysis`
+- [x] Sandbox Refresh Guide + .gitignore cleanup
 
 ---
 
-## 🔴 High Priority - KB Improvements
+## 🔴 High Priority
 
-### KB Data Quality Issues
-Current KB has poor search results due to:
-- AppFlow outputs 177 fields as raw JSON
-- Bedrock chunks JSON into meaningless fragments
-- Low relevance scores (0.4-0.5 instead of 0.7+)
-
-### Action Items
-
-- [ ] **Update AppFlow to select only needed fields:**
-  - CaseNumber, Subject, Description, Priority
-  - Case_Type__c, Close_Codes__c, Case_Closure_Notes__c
-  - Tool__c, Support_Reason__c, Department__c
-
-- [ ] **Create transformation Lambda** to convert JSON → structured text format:
-  ```
-  === CASE 00145956 ===
-  SUBJECT: Change User email
-  PRIORITY: High
-  CATEGORY: User_Access
-  RESOLUTION: Email changed.
-  ===
-  ```
-
-- [ ] **Reconfigure KB chunking** - increase chunk size to 800 tokens
-
-- [ ] **Add metadata filtering** for Category, Priority, Tool
-
-See [docs/KB_IMPROVEMENT_GUIDE.md](docs/KB_IMPROVEMENT_GUIDE.md) for details.
+- [ ] **Re-add closed cases to KB** — AppFlow sync removed, only SOPs remain. `similar_cases` always empty until case data is re-ingested
+- [ ] **AppFlow field optimization** — Select only needed fields (CaseNumber, Subject, Description, Close_Codes__c, etc.) instead of all 177
+- [ ] **Transformation Lambda** — Convert AppFlow JSON → structured text for better KB chunking
+- [ ] **Complete inttest E2E verification** — Start Event Relay, test full case flow
 
 ---
 
-## 🟡 Medium Priority - Before Production
+## 🟡 Medium Priority
 
-### Resource Naming Refactor
-
-Current naming uses `salesforceagent` prefix. Should follow `sf-{object}-{function}` convention.
-
-| Resource | Current Name | Target Name |
-|----------|--------------|-------------|
-| Project | `salesforceagent` | `sf-case-analysis` |
-| Lambda | `salesforceagent-api` | `sf-case-analysis-processor` |
-| SQS Queue | `salesforceagent-case-analysis` | `sf-case-analysis-queue` |
-
-**Steps:**
-1. Update `terraform.tfvars`: `project_name = "sf-case-analysis"`
-2. Run `terraform plan` to see resource recreations
-3. Update Salesforce Event Relay with new EventBridge bus name
-
-### Salesforce Field Population
-
-- [ ] Ensure `Case_Type__c` is populated consistently
-- [ ] Add `Case_Closure_Notes__c` to case close process
-- [ ] Train users to fill resolution fields
+- [ ] **KB chunking** — Increase chunk size to 800 tokens
+- [ ] **Metadata filtering** — Add Category, Priority, Tool filters to KB queries
+- [ ] **Delete old `Agent_Analysis_Status__c` field** — Replaced by `AI_Analysis_Status__c`, migrate data first
+- [ ] **Salesforce field population** — Ensure Case_Type__c, Case_Closure_Notes__c filled consistently
 
 ---
 
-## 🟢 Low Priority - Future Enhancements
+## 🟢 Low Priority
 
 - [ ] Separate KB data sources (Cases, KAV, Emails)
-- [ ] Add metadata filtering to agent queries
-- [ ] Create resolution templates for common request types
-- [ ] Add monitoring dashboard for agent performance
-- [ ] Implement feedback loop for response quality
-
----
-
-## AppFlow Data Sync Optimization
-
-### Current Issue
-- AppFlow creates new timestamped files each run → duplicates in S3
-- S3 Vectors has **50MB limit** per data source
-
-### Recommended Setup
-
-1. **Configure AppFlow for Incremental Sync:**
-   - Filter: `LastModifiedDate >= LAST_N_DAYS:7`
-
-2. **Weekly Sync Strategy:**
-   - Each run creates small file with last 7 days of closed cases
-   - Bedrock KB indexes all files in bucket
-
-See [docs/APPFLOW_KB_SYNC_SETUP.md](docs/APPFLOW_KB_SYNC_SETUP.md) for details.
-
----
-
-## Documentation
-
-| Doc | Purpose |
-|-----|---------|
-| [analysis/CASE_DATA_ANALYSIS_REPORT.md](docs/analysis/CASE_DATA_ANALYSIS_REPORT.md) | Analysis of 2000 closed cases |
-| [knowledge-base/KB_IMPROVEMENT_GUIDE.md](docs/knowledge-base/KB_IMPROVEMENT_GUIDE.md) | Steps to improve KB quality |
-| [deployment/DEPLOYMENT_GUIDE.md](docs/deployment/DEPLOYMENT_GUIDE.md) | Full deployment instructions |
-| [architecture/EVENT_DRIVEN_ARCHITECTURE.md](docs/architecture/EVENT_DRIVEN_ARCHITECTURE.md) | System architecture |
-| [salesforce/SALESFORCE_AUTH_IMPLEMENTATION.md](docs/salesforce/SALESFORCE_AUTH_IMPLEMENTATION.md) | JWT auth setup |
-
----
-
-## Docs Structure
-
-```
-docs/
-├── analysis/           # Data analysis reports
-├── architecture/       # System design docs
-├── deployment/         # Deploy & terraform guides
-├── knowledge-base/     # KB setup & improvement
-└── salesforce/         # SF config & auth
-```
+- [ ] Resolution templates for common request types
+- [ ] Monitoring dashboard for agent performance
+- [ ] Feedback analytics — track AI accuracy trends from AI_Feedback__c data

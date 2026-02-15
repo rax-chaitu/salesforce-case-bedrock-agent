@@ -40,7 +40,7 @@ ALLOWED_ORIGINS = [
 
 # Input validation limits
 MAX_SUBJECT_LENGTH = 500
-MAX_DESCRIPTION_LENGTH = 5000
+MAX_DESCRIPTION_LENGTH = 32000
 MAX_PROMPT_LENGTH = 10000
 
 # Salesforce ID pattern (15 or 18 character alphanumeric)
@@ -172,10 +172,21 @@ def handle_sqs_event(event: dict) -> dict:
 
             # Trusted data from Salesforce Platform Events - no sanitization needed
             case_number = case_data.get("Case_Number__c", "")
-            subject = case_data.get("Subject__c", "")
-            description = case_data.get("Description__c", "")
-            case_type = case_data.get("Type__c", "")
-            priority = case_data.get("Priority__c", "Medium")
+            subject = case_data.get("Subject", "")
+            description = case_data.get("Description", "")
+            case_type = case_data.get("Type", "")
+            priority = case_data.get("Priority", "Medium")
+            tool = case_data.get("Tool__c", "")
+            support_reason = case_data.get("Support_Reason__c", "")
+            reason = case_data.get("Reason", "")
+            record_type = case_data.get("Record_Type__c", "")
+            status = case_data.get("Status", "")
+            origin = case_data.get("Origin", "")
+            root_cause = case_data.get("Root_Cause_of_Inquiry__c", "")
+            case_type_detail = case_data.get("Case_Type__c", "")
+            department = case_data.get("Department__c", "")
+            segment = case_data.get("Segment__c", "")
+            opp_number = case_data.get("OpportunityNumber__c", "")
 
             # Idempotency check: skip if already analyzed today
             if salesforce.is_configured() and salesforce.is_already_analyzed(case_id):
@@ -192,6 +203,17 @@ def handle_sqs_event(event: dict) -> dict:
                 description=description,
                 case_type=case_type,
                 priority=priority,
+                tool=tool,
+                support_reason=support_reason,
+                reason=reason,
+                record_type=record_type,
+                status=status,
+                origin=origin,
+                root_cause=root_cause,
+                case_type_detail=case_type_detail,
+                department=department,
+                segment=segment,
+                opp_number=opp_number,
             )
 
             # Update Salesforce Case with analysis
@@ -225,7 +247,10 @@ def handle_sqs_event(event: dict) -> dict:
 
 
 def analyze_case(
-    case_id: str, case_number: str, subject: str, description: str, case_type: str, priority: str
+    case_id: str, case_number: str, subject: str, description: str, case_type: str, priority: str,
+    tool: str = "", support_reason: str = "", reason: str = "", record_type: str = "",
+    status: str = "", origin: str = "", root_cause: str = "", case_type_detail: str = "",
+    department: str = "", segment: str = "", opp_number: str = ""
 ) -> dict:
     """
     Invoke Bedrock Agent to analyze case and return structured response.
@@ -234,14 +259,38 @@ def analyze_case(
     """
     bedrock = get_bedrock_client()
     
-    # Minimal prompt - agent instructions handle response format and quality
-    prompt = f"""Analyze this case:
+    # Build context lines, only include non-empty fields
+    fields = [
+        f"Case Number: {case_number}",
+        f"Subject: {subject}",
+        f"Description: {description}",
+        f"Type: {case_type}",
+        f"Priority: {priority}",
+    ]
+    optional = [
+        ("Tool", tool),
+        ("Support Reason", support_reason),
+        ("Case Reason", reason),
+        ("What Needs Updated", record_type),
+        ("Status", status),
+        ("Origin", origin),
+        ("Root Cause of Inquiry", root_cause),
+        ("Case Type", case_type_detail),
+        ("Department", department),
+        ("Segment", segment),
+        ("Opportunity Number", opp_number),
+    ]
+    for label, value in optional:
+        if value:
+            fields.append(f"{label}: {value}")
 
-Case Number: {case_number}
-Subject: {subject}
-Description: {description}
-Type: {case_type}
-Priority: {priority}"""
+    case_context = "\n".join(fields)
+
+    prompt = f"""Search the Knowledge Base for articles and resolved cases related to this case, then analyze it using the KB results:
+
+{case_context}
+
+Base your analysis and recommendations on Knowledge Base content. If KB articles describe specific tools, processes, or self-service options for this type of request, include those details in your response."""
 
     session_id = f"case-{case_id}-{uuid.uuid4().hex[:8]}"
 
@@ -252,14 +301,26 @@ Priority: {priority}"""
         # Try to extract JSON from response
         analysis = json.loads(response_text)
     except json.JSONDecodeError:
-        # Fallback: wrap text response in structure
-        analysis = {
-            "summary": response_text[:500],
-            "steps": [],
-            "self_resolvable": False,
-            "similar_cases": [],
-            "recommendation": response_text,
-        }
+        analysis = None
+        # Try markdown code block first, then raw JSON object
+        json_match = re.search(r'```(?:json)?\s*(\{.*\})\s*```', response_text, re.DOTALL)
+        if not json_match:
+            json_match = re.search(r'(\{.*\})', response_text, re.DOTALL)
+        if json_match:
+            try:
+                analysis = json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        if not analysis:
+            analysis = {
+                "summary": response_text[:500],
+                "steps": [],
+                "self_resolvable": False,
+                "similar_cases": [],
+                "kb_articles": [],
+                "recommendation": response_text,
+            }
 
     analysis["analyzed_date"] = datetime.utcnow().isoformat()
     return analysis
@@ -315,7 +376,7 @@ def handle_api_gateway(event: dict) -> dict:
 
     except Exception as e:
         logger.error("api_error", error=str(e), path=event.get("path"))
-        return create_response(500, {"error": str(e)}, origin if 'origin' in dir() else "")
+        return create_response(500, {"error": str(e)}, origin if "origin" in locals() else "")
 
 
 def get_cors_origin(request_origin: str) -> str:
@@ -349,17 +410,21 @@ def create_response(status_code: int, body: dict, request_origin: str = "") -> d
 def handle_health(origin: str = "") -> dict:
     """Health check endpoint."""
     salesforce = get_salesforce_client()
-    return create_response(
-        200,
-        {
-            "status": "healthy",
-            "service": "salesforceagent-dual-mode",
-            "agent_id": os.environ.get("BEDROCK_AGENT_ID"),
-            "salesforce_configured": salesforce.is_configured(),
-            "timestamp": datetime.utcnow().isoformat(),
-        },
-        origin,
-    )
+    health = {
+        "status": "healthy",
+        "service": "salesforceagent-dual-mode",
+        "agent_id": os.environ.get("BEDROCK_AGENT_ID"),
+        "salesforce_configured": salesforce.is_configured(),
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    if salesforce.is_configured():
+        sf_status = salesforce.check_connection()
+        health["salesforce_connected"] = sf_status["connected"]
+        if sf_status.get("instance_url"):
+            health["salesforce_instance"] = sf_status["instance_url"]
+        if sf_status.get("error"):
+            health["salesforce_error"] = sf_status["error"]
+    return create_response(200, health, origin)
 
 
 def handle_agent_invoke(request_data: dict, origin: str = "") -> dict:
@@ -409,6 +474,17 @@ def handle_case_analyze(request_data: dict, origin: str = "") -> dict:
         description=sanitize_string(request_data["description"], MAX_DESCRIPTION_LENGTH, "description"),
         case_type=sanitize_string(request_data.get("type", ""), 100, "type"),
         priority=sanitize_string(request_data.get("priority", "Medium"), 20, "priority"),
+        tool=sanitize_string(request_data.get("tool", ""), 100, "tool"),
+        support_reason=sanitize_string(request_data.get("support_reason", ""), 200, "support_reason"),
+        reason=sanitize_string(request_data.get("reason", ""), 200, "reason"),
+        record_type=sanitize_string(request_data.get("record_type", ""), 100, "record_type"),
+        status=sanitize_string(request_data.get("status", ""), 50, "status"),
+        origin=sanitize_string(request_data.get("origin", ""), 50, "origin"),
+        root_cause=sanitize_string(request_data.get("root_cause", ""), 200, "root_cause"),
+        case_type_detail=sanitize_string(request_data.get("case_type_detail", ""), 100, "case_type_detail"),
+        department=sanitize_string(request_data.get("department", ""), 100, "department"),
+        segment=sanitize_string(request_data.get("segment", ""), 100, "segment"),
+        opp_number=sanitize_string(request_data.get("opp_number", ""), 50, "opp_number"),
     )
 
     return create_response(

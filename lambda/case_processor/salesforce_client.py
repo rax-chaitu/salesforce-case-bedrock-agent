@@ -15,6 +15,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime
 from typing import Any, Optional
@@ -55,6 +56,18 @@ class SalesforceClient:
     def is_configured(self) -> bool:
         """Check if Salesforce integration is configured."""
         return bool(self.secret_name)
+
+    def check_connection(self) -> dict[str, Any]:
+        """Test SF JWT auth and return connection status."""
+        try:
+            conn = self._get_connection()
+            if conn:
+                # Light query to verify connection works
+                conn.query("SELECT Id FROM Organization LIMIT 1")
+                return {"connected": True, "instance_url": conn.sf_instance}
+            return {"connected": False, "error": "No connection"}
+        except Exception as e:
+            return {"connected": False, "error": str(e)}
 
     def _get_credentials(self) -> dict[str, Any]:
         """
@@ -113,7 +126,7 @@ class SalesforceClient:
     def is_already_analyzed(self, case_id: str) -> bool:
         """
         Check if case was already analyzed today to prevent duplicate processing.
-        Returns True if Agent_Analysis_Status__c = 'Completed' AND AI_Analyzed_Date__c is today.
+        Returns True if AI_Analysis_Status__c = 'Completed' AND AI_Analyzed_Date__c is today.
         
         NOTE: case_id comes from trusted Salesforce Platform Events, no validation needed.
         """
@@ -127,12 +140,12 @@ class SalesforceClient:
         try:
             today = datetime.utcnow().strftime("%Y-%m-%d")
             result = sf.query(
-                f"SELECT Agent_Analysis_Status__c, AI_Analyzed_Date__c "
+                f"SELECT AI_Analysis_Status__c, AI_Analyzed_Date__c "
                 f"FROM Case WHERE Id = '{case_id}'"
             )
             if result["records"]:
                 record = result["records"][0]
-                status = record.get("Agent_Analysis_Status__c")
+                status = record.get("AI_Analysis_Status__c")
                 analyzed_date = record.get("AI_Analyzed_Date__c", "")
 
                 if status == "Completed" and analyzed_date and analyzed_date.startswith(today):
@@ -166,7 +179,7 @@ class SalesforceClient:
                     analysis.get("similar_cases", [])
                 ),
                 "AI_Analyzed_Date__c": datetime.utcnow().isoformat(),
-                "Agent_Analysis_Status__c": "Completed",
+                "AI_Analysis_Status__c": "Completed",
             }
 
             sf.Case.update(case_id, update_data)
@@ -179,47 +192,111 @@ class SalesforceClient:
                 sf.Case.update(
                     case_id,
                     {
-                        "Agent_Analysis_Status__c": "Failed",
+                        "AI_Analysis_Status__c": "Failed",
                         "AI_Analysis__c": f"Analysis failed: {e!s}",
                     },
                 )
             return False
 
     def _format_analysis(self, analysis: dict[str, Any]) -> str:
-        """Format analysis dict as readable text for Long Text Area field."""
+        """Format analysis dict as plain text for Long Text Area field."""
         parts: list[str] = []
 
         if analysis.get("summary"):
-            parts.append(f"## Summary\n{analysis['summary']}")
+            parts.append(f"SUMMARY\n{analysis['summary']}")
 
         if analysis.get("root_cause"):
-            parts.append(f"## Root Cause\n{analysis['root_cause']}")
+            parts.append(f"ROOT CAUSE\n{analysis['root_cause']}")
 
         if analysis.get("recommendation"):
-            parts.append(f"## Recommendation\n{analysis['recommendation']}")
+            parts.append(f"RECOMMENDATION\n{analysis['recommendation']}")
 
         if analysis.get("estimated_resolution"):
-            parts.append(f"## Estimated Resolution\n{analysis['estimated_resolution']}")
+            parts.append(f"ESTIMATED RESOLUTION\n{analysis['estimated_resolution']}")
 
         if analysis.get("escalation_needed") and analysis.get("escalation_reason"):
-            parts.append(f"## Escalation Required\n{analysis['escalation_reason']}")
+            parts.append(f"ESCALATION REQUIRED\n{analysis['escalation_reason']}")
 
         if analysis.get("category"):
-            parts.append(f"## Category\n{analysis['category']}")
+            parts.append(f"CATEGORY\n{analysis['category']}")
 
-        # Always add AI disclaimer at the end
-        parts.append("---\n⚠️ **AI-Generated Analysis** - Please verify before taking action.")
+        if analysis.get("kb_articles"):
+            articles = analysis["kb_articles"]
+            if isinstance(articles, list) and articles:
+                articles_text = "\n".join(f"• {a}" for a in articles)
+                parts.append(f"KB SOURCES\n{articles_text}")
+
+        parts.append("[AI-Generated Analysis - Please verify before taking action]")
 
         return "\n\n".join(parts) if parts else json.dumps(analysis, indent=2)
 
     def _format_steps(self, steps: list[str]) -> str:
-        """Format steps list as numbered text."""
+        """Format steps list as plain numbered text for Long Text Area field."""
         if not steps:
             return ""
-        return "\n".join(f"{i + 1}. {step}" for i, step in enumerate(steps))
+        # Strip any existing numbering from agent response (e.g. "1. Step")
+        clean_steps = [re.sub(r'^\d+\.\s*', '', step.strip()) for step in steps]
+        formatted = "\n".join(f"{i + 1}. {step}" for i, step in enumerate(clean_steps))
+        formatted += "\n\n[AI-Generated Suggestions - Please verify before taking action]"
+        return formatted
 
     def _format_similar_cases(self, cases: list[str]) -> str:
-        """Format similar cases as bullet list."""
+        """Format similar cases as HTML links for Rich Text field."""
         if not cases:
             return ""
-        return "\n".join(f"• {case}" for case in cases[:5])
+        
+        # Get instance URL for hyperlinks
+        instance_url = ""
+        if self._sf:
+            instance_url = getattr(self._sf, 'sf_instance', '') or ''
+            if instance_url and not instance_url.startswith('http'):
+                instance_url = f"https://{instance_url}"
+        
+        # Collect case numbers to lookup IDs
+        case_numbers: list[str] = []
+        for case in cases[:5]:
+            num_match = re.search(r'#?(\d{8})', case)
+            if num_match:
+                case_numbers.append(num_match.group(1))
+        
+        # Lookup Case IDs from Case Numbers
+        case_id_map: dict[str, str] = {}
+        if case_numbers and self._sf:
+            try:
+                numbers_str = "','".join(case_numbers)
+                result = self._sf.query(
+                    f"SELECT Id, CaseNumber FROM Case WHERE CaseNumber IN ('{numbers_str}')"
+                )
+                for record in result.get("records", []):
+                    case_id_map[record["CaseNumber"]] = record["Id"]
+            except Exception:
+                pass  # Continue without links if lookup fails
+        
+        formatted_cases: list[str] = []
+        for case in cases[:5]:
+            # Try to extract Case ID (18-char starting with 500)
+            id_match = re.search(r'\b(500[a-zA-Z0-9]{15})\b', case)
+            num_match = re.search(r'#?(\d{8})', case)
+            
+            case_id = None
+            display_text = None
+            
+            if id_match:
+                case_id = id_match.group(1)
+                display_text = num_match.group(1) if num_match else case_id
+            elif num_match:
+                case_number = num_match.group(1)
+                display_text = case_number
+                case_id = case_id_map.get(case_number)
+            
+            if case_id and instance_url:
+                # Create HTML hyperlink
+                link = f'<a href="{instance_url}/{case_id}" target="_blank">Case {display_text}</a>'
+                # Get description part (after the case reference)
+                desc_match = re.search(r':\s*(.+)$', case)
+                desc = f": {desc_match.group(1)}" if desc_match else ""
+                formatted_cases.append(f"• {link}{desc}")
+            else:
+                formatted_cases.append(f"• {case}")
+        
+        return "<br/>".join(formatted_cases)

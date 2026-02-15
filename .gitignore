@@ -33,8 +33,11 @@ salesforce.key
 .aws/
 
 # Salesforce
+.sfdx/
 salesforce/.sfdx/
 salesforce/.sf/
+salesforce/force-app/main/default/namedCredentials/
+salesforce/force-app/main/default/eventRelays/
 
 # IDE
 .vscode/
@@ -54,3 +57,10 @@ lambda/case_processor/lambda_package/
 # Terraform plan files
 *.tfplan
 tfplan
+
+# Terraform state backups
+terraform/*.backup
+terraform/*.backup.*
+
+# SOP documents (synced via KB, too large for git)
+docs/SOP_FOR_DS/

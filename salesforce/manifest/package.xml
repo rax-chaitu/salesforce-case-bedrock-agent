@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <!-- Case Custom Fields (AI Analysis) -->
+    <types>
+        <members>Case.AI_Analysis__c</members>
+        <members>Case.AI_Suggestions__c</members>
+        <members>Case.Self_Resolvable__c</members>
+        <members>Case.Similar_Cases__c</members>
+        <members>Case.Agent_Analysis_Status__c</members>
+        <members>Case.AI_Analyzed_Date__c</members>
+        <name>CustomField</name>
+    </types>
+    <!-- Apex Classes -->
+    <types>
+        <members>CaseHandler</members>
+        <name>ApexClass</name>
+    </types>
+    <!-- Platform Event Channel -->
+    <types>
+        <members>Case_AI_Analysis_Channel__chn</members>
+        <name>PlatformEventChannel</name>
+    </types>
+    <!-- Event Relay -->
+    <types>
+        <members>*</members>
+        <name>EventRelayConfig</name>
+    </types>
+    <!-- Named Credentials -->
+    <types>
+        <members>*</members>
+        <name>NamedCredential</name>
+    </types>
+    <version>62.0</version>
+</Package>

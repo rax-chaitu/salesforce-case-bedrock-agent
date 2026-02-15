@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>AI_Feedback__c</fullName>
+    <label>AI Feedback</label>
+    <type>Picklist</type>
+    <required>false</required>
+    <description>Feedback on AI case analysis quality - filled by case agent on closure</description>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Accurate &amp; Helpful</fullName>
+                <default>false</default>
+                <label>Accurate &amp; Helpful</label>
+            </value>
+            <value>
+                <fullName>Partially Accurate</fullName>
+                <default>false</default>
+                <label>Partially Accurate</label>
+            </value>
+            <value>
+                <fullName>Inaccurate Analysis</fullName>
+                <default>false</default>
+                <label>Inaccurate Analysis</label>
+            </value>
+            <value>
+                <fullName>Not Applicable</fullName>
+                <default>false</default>
+                <label>Not Applicable</label>
+            </value>
+            <value>
+                <fullName>AI Analysis Not Generated</fullName>
+                <default>false</default>
+                <label>AI Analysis Not Generated</label>
+            </value>
+            <value>
+                <fullName>AI Error</fullName>
+                <default>false</default>
+                <label>AI Error</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

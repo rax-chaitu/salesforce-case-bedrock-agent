@@ -34,7 +34,9 @@ Event-driven AI case analysis using **Amazon Bedrock Agent** with Knowledge Base
   │  • AI_Suggestions__c (Resolution Steps)                                          │
   │  • Self_Resolvable__c (Boolean)                                                  │
   │  • Similar_Cases__c (Related Cases from KB)                                      │
-  │  • Agent_Analysis_Status__c (Completed/Failed)                                   │
+  │  • AI_Analysis_Status__c (Completed/Failed)                                      │
+  │  • AI_Feedback__c (Agent Feedback Picklist)                                      │
+  │  • AI_Feedback_Comments__c (Detailed Feedback)                                   │
   └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -99,6 +101,41 @@ response = requests.post(f"{login_url}/services/oauth2/token", data={
     "assertion": jwt_token
 })
 ```
+
+### Phase 4: Enhanced Context & KB-First Analysis (Feb 2026)
+
+| Enhancement | Impact |
+|-------------|--------|
+| 11 additional case fields | Richer context (Tool, Support Reason, Department, Segment, etc.) |
+| Description limit: 5000 → 32000 chars | Handle complex case descriptions |
+| KB-first agent instructions | Agent MUST search KB before responding |
+| User permission awareness | Distinguishes admin vs self-service actions |
+| HTML hyperlinks in Similar Cases | Clickable case references in Salesforce |
+| Plain text formatting | Proper rendering in Long Text Area fields |
+| Anti-hallucination rules | Never fabricate case numbers or KB articles |
+| KB source citations | Shows which SOP docs informed the recommendation |
+| AI Feedback loop | Picklist + comments for agents to rate AI accuracy |
+| Permission set | `AI_Case_Analysis_User` - read AI fields, edit feedback |
+
+---
+
+## Knowledge Base Content
+
+The agent's recommendations are powered by **80+ SOP documents** organized by category:
+
+| Category | Count | Examples |
+|----------|-------|----------|
+| Tools Access | 13 | Revegy, Outreach, Sales Navigator, ZoomInfo |
+| Opportunities | 12 | Creation, amounts, SOW approval, debook |
+| Knowledge Articles | 18 | Self-service guides, team member requests |
+| Users | 5 | Onboarding, terminations, audits |
+| Companies | 8 | GAR tool, merges, reassignment |
+| Accounts | 5 | Creation, sync with CORE/Encore |
+| Leads | 3 | Upload, update owner, reject |
+
+**Location**: `docs/SOP_FOR_DS/`
+
+**Sync**: Automated via AppFlow + Step Functions (see [Automated KB Sync](#automated-kb-sync-appflow--step-functions) section)
 
 ---
 
@@ -388,10 +425,13 @@ terraform apply
 2. Change State from `STOP` to `RUN`
 3. Save
 
-### Step 13: Deploy Salesforce Apex
+### Step 13: Deploy Salesforce Apex & Permission Set
 
 ```bash
 sf project deploy start --source-dir salesforce/force-app --target-org YOUR_ORG
+
+# Assign permission set to case agents
+sf org assign permset --name AI_Case_Analysis_User --target-org YOUR_ORG
 ```
 
 ### Step 14: Verify
@@ -534,6 +574,7 @@ aws sqs get-queue-attributes \
 │           ├── classes/CaseHandler.cls
 │           ├── objects/Case/
 │           ├── objects/Integration_Event__e/
+│           ├── permissionsets/
 │           ├── eventRelays/
 │           └── platformEventChannels/
 ├── terraform/
@@ -669,6 +710,7 @@ terraform apply
 | Document | Description |
 |----------|-------------|
 | [AppFlow KB Sync Setup](docs/APPFLOW_KB_SYNC_SETUP.md) | Complete guide for AppFlow + Step Functions KB sync pipeline |
+| [Sandbox Refresh Guide](docs/SANDBOX_REFRESH_GUIDE.md) | Post-refresh setup steps for new sandbox |
 | [Salesforce Connected App Guide](docs/SALESFORCE_CONNECTED_APP_GUIDE.md) | Setting up Salesforce Connected App for JWT auth |
 | [Salesforce Auth Implementation](docs/SALESFORCE_AUTH_IMPLEMENTATION.md) | JWT Bearer Token flow implementation details |
 | [Deployment Guide](docs/DEPLOYMENT_GUIDE.md) | Full deployment instructions |

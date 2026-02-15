@@ -1,12 +1,96 @@
 # Salesforce Bedrock Agent - Steering Guide
 
 ---
-inclusion: manual
+inclusion: always
 ---
 
 ## Project Overview
 
 This is a **Salesforce AI Case Analysis Agent** using Amazon Bedrock Agent with Knowledge Base integration. Event-driven architecture: Salesforce Case → Platform Event → Event Relay → EventBridge → SQS → Lambda → Bedrock Agent → Update Case.
+
+**Tech Stack**: Python 3.12, Terraform, AWS (Lambda, Bedrock, SQS, EventBridge), Salesforce (Apex, Platform Events)
+
+## Agent Behavior Rules
+
+1. **Always check AWS credentials first** - Run `aws sts get-caller-identity` before any AWS operation
+2. **Ask for profile selection** on first AWS interaction each session
+3. **Use python3** explicitly (never `python`)
+4. **Check terraform.tfvars** before suggesting Terraform changes
+5. **Verify Lambda dependencies** are in `lambda_package/` before deployment
+6. **Parse nested JSON** correctly for Salesforce Event Relay payloads
+7. **Use awscurl** for API Gateway testing (requires IAM auth)
+8. **Check CloudWatch logs** when debugging Lambda issues
+
+---
+
+## 🎯 Common Workflows
+
+### Workflow 1: Deploy Code Changes
+
+```bash
+# 1. Verify credentials
+aws sts get-caller-identity --profile SANDBOX5JAN27
+
+# 2. Quick Lambda deploy (bypasses Terraform)
+cd lambda/case_processor
+cd lambda_package && zip -rq /tmp/lambda.zip .
+cd .. && zip -j /tmp/lambda.zip handler.py bedrock_client.py salesforce_client.py __init__.py
+aws lambda update-function-code --function-name salesforceagent-api --zip-file fileb:///tmp/lambda.zip
+
+# 3. Test
+awscurl --service execute-api --region us-east-1 "$API_URL/health"
+
+# 4. Check logs
+aws logs tail /aws/lambda/salesforceagent-api --since 5m --format short
+```
+
+### Workflow 2: Update Bedrock Agent Instructions
+
+```bash
+# 1. Edit terraform/modules/bedrock_agent/main.tf
+# 2. Apply changes
+cd terraform && terraform apply -target=module.bedrock_agent
+
+# 3. Prepare new version
+aws bedrock-agent prepare-agent --agent-id $AGENT_ID
+
+# 4. Test
+awscurl -X POST "$API_URL/agent/invoke" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "test query"}'
+```
+
+### Workflow 3: Sync Knowledge Base
+
+```bash
+# Manual sync
+aws bedrock-agent start-ingestion-job \
+  --knowledge-base-id $KB_ID \
+  --data-source-id $DATASOURCE_ID
+
+# Or trigger Step Functions (if enabled)
+aws stepfunctions start-execution \
+  --state-machine-arn "arn:aws:states:us-east-1:ACCOUNT:stateMachine:salesforceagent-kb-sync"
+```
+
+### Workflow 4: Debug Event Flow
+
+```bash
+# 1. Check SQS queue
+aws sqs get-queue-attributes \
+  --queue-url $SQS_QUEUE_URL \
+  --attribute-names ApproximateNumberOfMessages
+
+# 2. Check Lambda logs
+aws logs tail /aws/lambda/salesforceagent-api --since 10m --format short
+
+# 3. Test with manual SQS message
+aws sqs send-message --queue-url $SQS_QUEUE_URL \
+  --message-body '{"detail":{"payload":{"Record_Id__c":"500xxx","Payload__c":"{\"Case_Number__c\":\"00151191\"}"}}}'
+
+# 4. Check Salesforce Case update
+sf data query --query "SELECT AI_Analysis__c FROM Case WHERE CaseNumber='00151191'" --target-org UATDEC25
+```
 
 ---
 
@@ -307,6 +391,76 @@ lifecycle {
      "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
    }
    ```
+
+---
+
+## 🔄 Terraform Drift Workflow
+
+**Drift** = AWS resources differ from your Terraform code (someone changed AWS manually)
+
+### Step 1: Detect Drift
+
+```bash
+cd terraform
+terraform refresh   # Pull latest AWS state
+terraform plan      # Shows differences
+```
+
+Output shows:
+- `~` = Will be updated (drift detected)
+- `+` = Will be created
+- `-` = Will be destroyed
+
+### Step 2: Review Each Drifted Resource
+
+```bash
+# See what's currently in AWS for a specific resource
+terraform state show module.bedrock_agent.aws_bedrockagent_agent.agent
+terraform state show module.lambda.aws_lambda_function.api
+```
+
+### Step 3: Decide - Keep or Override
+
+**To KEEP manual change** → Update your `.tf` file:
+```bash
+# Copy values from state show output to your .tf file
+# Then plan again - should show no changes for that resource
+```
+
+**To OVERRIDE manual change** → Just apply:
+```bash
+terraform apply
+# AWS will match your code
+```
+
+### Step 4: Selective Apply (Advanced)
+
+Override specific resources only:
+```bash
+# Override only Lambda, keep other drift
+terraform apply -target=module.lambda.aws_lambda_function.api
+
+# Override only SQS
+terraform apply -target=module.sqs.aws_sqs_queue.main
+```
+
+### Common Drift Scenarios
+
+| Scenario | Action |
+|----------|--------|
+| Lambda timeout changed in console | Override (apply) or update `lambda_timeout` in tfvars |
+| Agent instructions tweaked in Bedrock console | Copy from `state show` to `bedrock_agent/main.tf` |
+| Secret value rotated | Usually ignore - use `lifecycle { ignore_changes }` |
+| Someone added tags manually | Override or add tags to your .tf |
+
+### Prevent Future Drift
+
+For resources that change outside Terraform:
+```hcl
+lifecycle {
+  ignore_changes = [tags, description]  # Won't override these
+}
+```
 
 ---
 
