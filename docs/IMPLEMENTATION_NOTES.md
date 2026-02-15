@@ -148,7 +148,7 @@ aws bedrock-agent update-agent-alias \
 | AI_Suggestions__c | Long Text Area | Resolution steps |
 | Self_Resolvable__c | Checkbox | Can user self-resolve? |
 | Similar_Cases__c | Long Text Area | Related cases from KB |
-| Agent_Analysis_Status__c | Picklist | Pending/Completed/Failed |
+| AI_Analysis_Status__c | Picklist | Pending/Completed/Failed |
 | AI_Analyzed_Date__c | DateTime | When analyzed |
 
 ### CaseHandler.cls (Apex Trigger Handler)

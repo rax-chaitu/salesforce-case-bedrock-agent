@@ -6,9 +6,18 @@
         <members>Case.AI_Suggestions__c</members>
         <members>Case.Self_Resolvable__c</members>
         <members>Case.Similar_Cases__c</members>
-        <members>Case.Agent_Analysis_Status__c</members>
+        <members>Case.AI_Analysis_Status__c</members>
         <members>Case.AI_Analyzed_Date__c</members>
+        <members>Case.AI_Feedback__c</members>
+        <members>Case.AI_Feedback_Comments__c</members>
+        <members>Case.Agent_Analysis_Status__c</members>
         <name>CustomField</name>
+    </types>
+    <!-- Permission Sets -->
+    <types>
+        <members>AI_Case_Analysis_User</members>
+        <members>AI_Case_Analysis_Integration</members>
+        <name>PermissionSet</name>
     </types>
     <!-- Apex Classes -->
     <types>

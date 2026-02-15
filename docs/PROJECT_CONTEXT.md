@@ -99,7 +99,7 @@ CURRENT PRODUCTION ARCHITECTURE:
     • AI_Suggestions__c (resolution steps)
     • Self_Resolvable__c (boolean)
     • Similar_Cases__c (related cases as HTML links)
-    • Agent_Analysis_Status__c (Completed/Failed)
+    • AI_Analysis_Status__c (Completed/Failed)
     • AI_Analyzed_Date__c (timestamp)
 ```
 
@@ -224,8 +224,8 @@ The Lambda (`handler.py`, ~350 lines) operates in two modes:
 - Secret naming matches Glue job pattern: `salesforce-{env}-sandbox-jwt` or `salesforce-production-jwt`
 - Auth URL: `https://test.salesforce.com` (sandbox) or `https://login.salesforce.com` (prod)
 - Uses `simple-salesforce` library (v62.0 API)
-- Idempotency: `is_already_analyzed()` checks `Agent_Analysis_Status__c = 'Completed'` AND `AI_Analyzed_Date__c` is today
-- Case update writes: AI_Analysis__c, AI_Suggestions__c, Self_Resolvable__c, Similar_Cases__c, AI_Analyzed_Date__c, Agent_Analysis_Status__c
+- Idempotency: `is_already_analyzed()` checks `AI_Analysis_Status__c = 'Completed'` AND `AI_Analyzed_Date__c` is today
+- Case update writes: AI_Analysis__c, AI_Suggestions__c, Self_Resolvable__c, Similar_Cases__c, AI_Analyzed_Date__c, AI_Analysis_Status__c
 - Similar cases formatted as HTML hyperlinks with Case ID lookup
 - Failure handling: writes "Failed" status + error message on exception
 
@@ -398,7 +398,7 @@ AppFlow (with filters: PublishStatus=Online, IsLatestVersion=true)
 - Self_Resolvable__c (Checkbox)
 - Similar_Cases__c (Rich Text — HTML hyperlinks)
 - AI_Analyzed_Date__c (DateTime)
-- Agent_Analysis_Status__c (Picklist: Pending, Analyzing, Completed, Failed)
+- AI_Analysis_Status__c (Picklist: Pending, Analyzing, Completed, Failed)
 
 **Connected App:** AWS Bedrock Integration
 - JWT Bearer Token flow with X.509 certificate

@@ -11,8 +11,9 @@ sf project retrieve start --manifest salesforce/manifest/package.xml --target-or
 
 | Type | Components |
 |------|-----------|
-| CustomField | `AI_Analysis__c`, `AI_Analyzed_Date__c`, `AI_Suggestions__c`, `Agent_Analysis_Status__c`, `Self_Resolvable__c`, `Similar_Cases__c` |
+| CustomField | `AI_Analysis__c`, `AI_Analyzed_Date__c`, `AI_Suggestions__c`, `AI_Analysis_Status__c`, `Self_Resolvable__c`, `Similar_Cases__c`, `AI_Feedback__c`, `AI_Feedback_Comments__c` |
 | ApexClass | `CaseHandler` |
+| PermissionSet | `AI_Case_Analysis_User`, `AI_Case_Analysis_Integration` |
 | PlatformEventChannel | `Case_AI_Analysis_Channel__chn` |
 | EventRelayConfig | All event relays |
 | NamedCredential | All named credentials |
@@ -36,7 +37,17 @@ sf project retrieve start --manifest salesforce/manifest/package.xml --target-or
 sf project deploy start --manifest salesforce/manifest/package.xml --target-org InttestJune25
 ```
 
-### Step 2: Verify Integration_Event__e Exists
+### Step 2: Assign Permission Sets
+
+```bash
+# Integration user (Lambda/API writes AI fields)
+sf org assign permset --name AI_Case_Analysis_Integration --on-behalf-of sfdc_tes_admin@rackspace.com.inttest --target-org InttestJune25
+
+# Case agents (read AI fields, edit feedback)
+sf org assign permset --name AI_Case_Analysis_User --on-behalf-of <agent_username> --target-org InttestJune25
+```
+
+### Step 3: Verify Integration_Event__e Exists
 
 ```bash
 sf org list metadata -m CustomObject -o InttestJune25 | grep Integration_Event
@@ -44,7 +55,7 @@ sf org list metadata -m CustomObject -o InttestJune25 | grep Integration_Event
 
 If missing, create it manually in Setup → Platform Events.
 
-### Step 3: Create Platform Event Channel + Member (Tooling API)
+### Step 4: Create Platform Event Channel + Member (Tooling API)
 
 Run in Developer Console → Execute Anonymous:
 
@@ -97,7 +108,7 @@ System.debug('Member Status: ' + res.getStatusCode());
 System.debug('Member Response: ' + res.getBody());
 ```
 
-### Step 4: Connected App (JWT)
+### Step 5: Connected App (JWT)
 
 1. Setup → App Manager → Find or create Connected App
 2. Enable OAuth: scopes `api`, `refresh_token`
@@ -106,7 +117,7 @@ System.debug('Member Response: ' + res.getBody());
 5. Add integration user's profile
 6. Copy Consumer Key
 
-### Step 5: Create Event Relay
+### Step 6: Create Event Relay
 
 1. Setup → Event Relays → New
    - Label: `AWS_Sandbox9_Case_AI` (or appropriate name)
@@ -114,7 +125,7 @@ System.debug('Member Response: ' + res.getBody());
    - State: `STOP`
 2. Save → Copy Partner Event Source ARN
 
-### Step 6: Associate Partner Event Bus in AWS
+### Step 7: Associate Partner Event Bus in AWS
 
 ```bash
 EVENT_SOURCE="aws.partner/salesforce.com/00DgP.../0YLgP..."
@@ -125,7 +136,7 @@ aws events create-event-bus \
   --region us-east-1 --profile SANDBOX9FEB9
 ```
 
-### Step 7: Update Terraform + Deploy
+### Step 8: Update Terraform + Deploy
 
 ```hcl
 # terraform.tfvars
@@ -136,12 +147,12 @@ salesforce_event_source = "aws.partner/salesforce.com/00DgP.../0YLgP..."
 cd terraform && terraform apply
 ```
 
-### Step 8: Start Event Relay
+### Step 9: Start Event Relay
 
 1. Setup → Event Relays → Open relay
 2. Change State: `STOP` → `RUN`
 
-### Step 9: Update AWS Secret (if username changed)
+### Step 10: Update AWS Secret (if username changed)
 
 ```bash
 aws secretsmanager put-secret-value \
@@ -150,7 +161,7 @@ aws secretsmanager put-secret-value \
   --profile SANDBOX9FEB9 --region us-east-1
 ```
 
-### Step 10: Verify
+### Step 11: Verify
 
 ```bash
 # Health check

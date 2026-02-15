@@ -29,7 +29,7 @@ All 4 endpoints tested successfully:
 3. **Self_Resolvable__c** (Checkbox) - Can user self-resolve
 4. **Similar_Cases__c** (Long Text 5K) - Related cases
 5. **AI_Analyzed_Date__c** (DateTime) - When analyzed
-6. **Agent_Analysis_Status__c** (Text) - Status tracking
+6. **AI_Analysis_Status__c** (Text) - Status tracking
 
 Deploy ID: 0AfgP000003wMG9SAM (Status: Unchanged - already existed)
 
@@ -64,7 +64,7 @@ aws logs tail /aws/lambda/salesforceagent-api --follow --profile sandbox4
 Once Lambda processes the event, check if AI fields are populated:
 ```bash
 cd salesforce && sf data query \
-  --query "SELECT Id, CaseNumber, AI_Analysis__c, Self_Resolvable__c, Agent_Analysis_Status__c FROM Case WHERE CaseNumber = '00151184'" \
+  --query "SELECT Id, CaseNumber, AI_Analysis__c, Self_Resolvable__c, AI_Analysis_Status__c FROM Case WHERE CaseNumber = '00151184'" \
   --target-org UATDEC25
 ```
 

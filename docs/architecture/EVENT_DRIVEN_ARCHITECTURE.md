@@ -44,7 +44,7 @@ When a Case is created in Salesforce:
 │  │  │ Key Fields:                                                                 │  │  │
 │  │  │ • Status: New → Agent_Analysis → [Self_Resolved | Admin_Router]            │  │  │
 │  │  │ • Agent_Analysis__c: AI-generated analysis and recommendations             │  │  │
-│  │  │ • Agent_Analysis_Status__c: Pending | Completed | Failed                   │  │  │
+│  │  │ • AI_Analysis_Status__c: Pending | Completed | Failed                   │  │  │
 │  │  │ • Agent_Analyzed_Date__c: Timestamp of analysis                            │  │  │
 │  │  │ • RecordType: Determines case routing logic                                │  │  │
 │  │  │ • Type, Priority, Origin: Input for AI analysis                            │  │  │
@@ -175,7 +175,7 @@ This architecture uses **standard Bedrock Agents** instead of Bedrock AgentCore:
 | API Name | Label | Type | Description |
 |----------|-------|------|-------------|
 | `Agent_Analysis__c` | Agent Analysis | Long Text (32000) | AI-generated analysis |
-| `Agent_Analysis_Status__c` | Analysis Status | Picklist | Pending, Completed, Failed, Not_Applicable |
+| `AI_Analysis_Status__c` | Analysis Status | Picklist | Pending, Completed, Failed, Not_Applicable |
 | `Agent_Analyzed_Date__c` | Analyzed Date | DateTime | When analysis completed |
 | `Self_Resolvable__c` | Self Resolvable | Checkbox | Can user resolve without admin |
 
@@ -412,7 +412,7 @@ def update_salesforce_case(case_id, analysis):
 ### Phase 1: Salesforce Setup
 - [ ] Create custom fields on Case object:
   - `Agent_Analysis__c` (Long Text Area 32000)
-  - `Agent_Analysis_Status__c` (Picklist: Pending, Completed, Failed, Not_Applicable)
+  - `AI_Analysis_Status__c` (Picklist: Pending, Completed, Failed, Not_Applicable)
   - `Agent_Analyzed_Date__c` (DateTime)
   - `Self_Resolvable__c` (Checkbox)
 - [ ] Create new Status values: `Agent_Analysis`, `Admin_Router`, `Self_Resolved`

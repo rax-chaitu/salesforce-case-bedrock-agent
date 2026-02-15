@@ -142,7 +142,7 @@ The private key can still be passed through Terraform variables, which means:
 ```python
 # Still uses f-string interpolation
 result = sf.query(
-    f"SELECT Agent_Analysis_Status__c, AI_Analyzed_Date__c "
+    f"SELECT AI_Analysis_Status__c, AI_Analyzed_Date__c "
     f"FROM Case WHERE Id = '{case_id}'"
 )
 ```

@@ -326,9 +326,10 @@ resource "aws_iam_role_policy" "bedrock_agent_model_policy" {
       Effect = "Allow"
       Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
       Resource = [
-        "arn:aws:bedrock:${data.aws_region.current.id}::foundation-model/${var.foundation_model}",
-        "arn:aws:bedrock:${data.aws_region.current.id}::foundation-model/amazon.nova-lite-v1:0",
-        "arn:aws:bedrock:${data.aws_region.current.id}::foundation-model/amazon.titan-embed-text-v2:0"
+        "arn:aws:bedrock:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:inference-profile/${var.foundation_model}",
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
+        "arn:aws:bedrock:*::foundation-model/amazon.nova-*",
+        "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-*"
       ]
     }]
   })

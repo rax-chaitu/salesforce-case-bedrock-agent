@@ -122,4 +122,4 @@ Self-resolve using steps below. If issue persists after 24 hours, escalate to IT
 • Case 500Pe00000rzRxiIAE: Login issue - password sync delay
 ```
 
-**Agent_Analysis_Status__c**: `Completed`
+**AI_Analysis_Status__c**: `Completed`

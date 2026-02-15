@@ -228,7 +228,7 @@ aws logs filter-log-events \
 - `Self_Resolvable__c` - Boolean flag
 - `Similar_Cases__c` - Related case references
 - `AI_Analyzed_Date__c` - Timestamp
-- `Agent_Analysis_Status__c` - "Completed" or "Failed"
+- `AI_Analysis_Status__c` - "Completed" or "Failed"
 
 **Verification Steps:**
 1. Check if case `500Pe00000s9XyXIAU` was updated in Salesforce
@@ -377,7 +377,7 @@ aws logs tail /aws/lambda/salesforceagent-api \
    - AI_Analysis__c
    - AI_Suggestions__c
    - Self_Resolvable__c
-   - Agent_Analysis_Status__c
+   - AI_Analysis_Status__c
 
 ### Priority 6: Alternative OAuth Flow (If Client Credentials Fails)
 If OAuth 2.0 Client Credentials doesn't work, try JWT Bearer flow:
@@ -542,7 +542,7 @@ aws logs filter-log-events \
 4. Check custom fields:
    - AI_Analysis__c
    - AI_Suggestions__c
-   - Agent_Analysis_Status__c
+   - AI_Analysis_Status__c
    - Self_Resolvable__c
 
 ### Troubleshooting Commands
