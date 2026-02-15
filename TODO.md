@@ -41,6 +41,8 @@
 
 ## 🔴 High Priority
 
+- [ ] **Strip "create a case" user_steps in post-processing** — Nova Pro ignores prompt instruction not to suggest creating a case as self-service. Filter out user_steps that contain "create a case/submit a case" and hide USER SELF-SERVICE section entirely if all steps are case-submission
+- [ ] **KB Sources hyperlinks broken** — Real SF Knowledge Articles (from deterministic KA search) should be hyperlinks, but currently showing as plain text. The `_real_ka_titles` are lowercase but article titles in `kb_articles` may have different casing — need case-insensitive match in salesforce_client.py
 - [ ] **Add Tool__c to similar cases AND filter** — Include `Tool__c` as additional AND condition in searchSimilarCases SOQL so Revegy cases don't match Salesforce cases etc.
 - [ ] **Re-add closed cases to KB** — AppFlow sync removed, only SOPs remain. `similar_cases` always empty until case data is re-ingested
 - [ ] **AppFlow field optimization** — Select only needed fields (CaseNumber, Subject, Description, Close_Codes__c, etc.) instead of all 177

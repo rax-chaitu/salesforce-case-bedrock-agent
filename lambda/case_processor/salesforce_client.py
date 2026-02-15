@@ -120,11 +120,12 @@ class SalesforceClient:
             if isinstance(articles, list) and articles:
                 sf = self._get_connection()
                 base = f"https://{sf.sf_instance}" if sf else ""
+                real_ka = set(analysis.get("_real_ka_titles", []))
                 items = []
                 for a in articles:
-                    if base and isinstance(a, str):
+                    if base and isinstance(a, str) and a.lower() in real_ka:
                         url_name = a.replace(" ", "-")
-                        items.append(f'<li><a href="{base}/articles/Knowledge/{url_name}">{a}</a></li>')
+                        items.append(f'<li><a href="{base}/articles/Knowledge/{url_name}" target="_blank">{a}</a></li>')
                     else:
                         items.append(f"<li>{a}</li>")
                 parts.append(f"<b>KB Sources</b><ul>{''.join(items)}</ul>")

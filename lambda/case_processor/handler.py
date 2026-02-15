@@ -266,7 +266,7 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
 - "severity": Critical | High | Medium | Low
 - "root_cause": what triggered this request
 - "admin_steps": steps a Salesforce admin takes to resolve this (navigation paths, buttons, fields)
-- "user_steps": steps the end user can do themselves based on the SOP Knowledge Base (e.g. submit request, click Request Access, navigate to record)
+- "user_steps": steps the end user can do themselves based on the SOP Knowledge Base (e.g. submit request, click Request Access, navigate to record). NEVER include "create a case" or "submit a case" — the case already exists. If there are no real self-service steps, return an empty array [].
 - "similar_cases": case numbers from searchSimilarCases
 - "kb_articles": SOP document names and Knowledge Article titles
 - "estimated_resolution": time estimate with brief explanation
@@ -389,6 +389,7 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
             )
 
     analysis["analyzed_date"] = datetime.utcnow().isoformat()
+    analysis["_real_ka_titles"] = [t.lower() for t in ka_titles]  # for hyperlink check
     return analysis
 
 
