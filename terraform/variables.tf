@@ -3,9 +3,9 @@
 ################################################################################
 
 variable "project_name" {
-  description = "Project name for resource naming (pattern: sf-{object}-{function})"
+  description = "Project prefix for resource naming. Case-specific resources use this directly (e.g., sf-case-processor). Shared resources use 'rackspace-sf-' prefix independently."
   type        = string
-  default     = "sf-case-analysis"
+  default     = "sf-case"
 }
 
 variable "aws_region" {

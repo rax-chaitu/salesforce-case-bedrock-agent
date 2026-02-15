@@ -94,7 +94,8 @@ data "archive_file" "lambda_zip" {
 resource "aws_lambda_function" "api" {
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  function_name    = "${var.project_name}-api"
+  function_name    = "${var.project_name}-processor"
+  description      = "Processes Salesforce cases via SQS events and API Gateway, invokes Bedrock Agent, updates case with AI analysis"
   role             = aws_iam_role.lambda_role.arn
   handler          = "handler.lambda_handler"
   runtime          = "python3.11"
@@ -149,7 +150,8 @@ resource "aws_lambda_event_source_mapping" "sqs_trigger" {
 ################################################################################
 
 resource "aws_iam_role" "lambda_role" {
-  name = "${var.project_name}-lambda-role"
+  name        = "${var.project_name}-lambda-role"
+  description = "Execution role for ${var.project_name}-processor Lambda - Bedrock, SQS, Secrets Manager, CloudWatch access"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -248,7 +250,7 @@ resource "aws_iam_role_policy" "lambda_secrets" {
 ################################################################################
 
 resource "aws_cloudwatch_log_group" "lambda_logs" {
-  name              = "/aws/lambda/${var.project_name}-api"
+  name              = "/aws/lambda/${var.project_name}-processor"
   retention_in_days = var.log_retention_days
   tags              = { Project = var.project_name, ManagedBy = "Terraform" }
 }

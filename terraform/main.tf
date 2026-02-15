@@ -92,6 +92,24 @@ module "action_group" {
 
   project_name           = var.project_name
   sf_auth_layer_arn      = module.lambda_layer.layer_arn
+  sf_queries_layer_arn   = module.sf_queries_layer.layer_arn
+  bedrock_agent_id       = module.bedrock_agent.agent_id
+  salesforce_secret_name = module.secrets.secret_name
+  salesforce_environment = var.salesforce_environment
+  log_retention_days     = var.log_retention_days
+}
+
+module "sf_queries_layer" {
+  source       = "./modules/sf_queries_layer"
+  project_name = var.project_name
+}
+
+module "shared_action_group" {
+  source = "./modules/shared_action_group"
+
+  project_name           = var.project_name
+  sf_auth_layer_arn      = module.lambda_layer.layer_arn
+  sf_queries_layer_arn   = module.sf_queries_layer.layer_arn
   bedrock_agent_id       = module.bedrock_agent.agent_id
   salesforce_secret_name = module.secrets.secret_name
   salesforce_environment = var.salesforce_environment
@@ -123,7 +141,7 @@ output "bedrock_agent_prod_alias_id" {
 }
 
 output "lambda_function_name" {
-  description = "Lambda function name"
+  description = "Case processor Lambda function name"
   value       = module.lambda.function_name
 }
 
@@ -143,13 +161,23 @@ output "knowledge_base_id" {
 }
 
 output "action_group_function_name" {
-  description = "Action Group Lambda function name"
+  description = "Case-specific action group Lambda function name"
   value       = module.action_group.function_name
 }
 
 output "sf_auth_layer_arn" {
   description = "Rackspace SF Auth Lambda Layer ARN"
   value       = module.lambda_layer.layer_arn
+}
+
+output "sf_queries_layer_arn" {
+  description = "Rackspace SF Queries Lambda Layer ARN"
+  value       = module.sf_queries_layer.layer_arn
+}
+
+output "shared_action_group_function_name" {
+  description = "Shared Action Group Lambda function name"
+  value       = module.shared_action_group.function_name
 }
 
 # Disabled - using S3 + AppFlow approach

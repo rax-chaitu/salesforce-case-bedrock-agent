@@ -1,16 +1,16 @@
 {
   "openapi": "3.0.0",
   "info": {
-    "title": "Salesforce Similar Cases Search",
-    "version": "1.0.0",
-    "description": "Search Salesforce for similar closed cases to help resolve new cases."
+    "title": "Salesforce Case & Knowledge Search",
+    "version": "2.0.0",
+    "description": "Search Salesforce for similar closed cases and knowledge articles."
   },
   "paths": {
     "/searchSimilarCases": {
       "post": {
         "operationId": "searchSimilarCases",
         "summary": "Search for similar closed Salesforce cases by keywords and support reason",
-        "description": "Queries Salesforce for closed cases matching the given keywords and optional support reason. Returns case details including subject, description, closure notes, and comments. Use this to find how similar cases were resolved in the past.",
+        "description": "Queries Salesforce for closed cases matching the given keywords and optional support reason. Returns case details including subject, description, closure notes, comments, emails, and chatter posts. Use this to find how similar cases were resolved in the past.",
         "requestBody": {
           "required": true,
           "content": {
@@ -29,8 +29,8 @@
                   },
                   "max_results": {
                     "type": "integer",
-                    "description": "Maximum number of similar cases to return (1-10, default 5).",
-                    "default": 5
+                    "description": "Maximum number of similar cases to return (1-50, default 10).",
+                    "default": 10
                   }
                 }
               }
@@ -55,8 +55,78 @@
                           "support_reason": { "type": "string" },
                           "description": { "type": "string" },
                           "closure_notes": { "type": "string" },
+                          "close_code": { "type": "string" },
+                          "close_reason": { "type": "string" },
+                          "root_cause": { "type": "string" },
+                          "tool": { "type": "string" },
+                          "department": { "type": "string" },
+                          "segment": { "type": "string" },
+                          "resolution": { "type": "string" },
+                          "admin_notes": { "type": "string" },
                           "comments": { "type": "string" },
+                          "emails": { "type": "string" },
+                          "chatter": { "type": "string" },
                           "closed_date": { "type": "string" }
+                        }
+                      }
+                    },
+                    "total_found": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/searchKnowledgeArticles": {
+      "post": {
+        "operationId": "searchKnowledgeArticles",
+        "summary": "Search Salesforce Knowledge articles by keywords",
+        "description": "Searches published Salesforce KnowledgeArticleVersion records by keywords in the title. Returns article titles, URLs, and summaries for self-service guides users can follow themselves. IMPORTANT: Only include articles in kb_articles that are directly relevant to the SPECIFIC issue in the case - not broadly related topics. For example, if the case is about adding a team member, do NOT include articles about modifying amounts or moving opportunities.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["keywords"],
+                "properties": {
+                  "keywords": {
+                    "type": "string",
+                    "description": "Space-separated keywords to search knowledge article titles (e.g., 'opportunity quote amount' or 'account sync CORE'). Up to 5 keywords are used, matched with OR logic for broad results."
+                  },
+                  "support_reason": {
+                    "type": "string",
+                    "description": "The Support_Reason__c value from the case. Used to broaden search when keywords alone are too narrow."
+                  },
+                  "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of articles to return (1-10, default 5).",
+                    "default": 5
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Knowledge articles found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "articles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "title": { "type": "string" },
+                          "url_name": { "type": "string" },
+                          "article_number": { "type": "string" },
+                          "summary": { "type": "string" }
                         }
                       }
                     },

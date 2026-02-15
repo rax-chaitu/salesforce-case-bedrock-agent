@@ -1,8 +1,8 @@
 ################################################################################
-# Action Group Module
+# Shared Action Group Module
 #
-# Lambda + Bedrock Agent Action Group for searching similar SF cases.
-# Uses shared rackspace_sf_auth layer for authentication.
+# Generic Salesforce query action group - reusable across ALL Bedrock agents.
+# Uses both rackspace_sf_auth and rackspace_sf_queries layers.
 ################################################################################
 
 variable "project_name" {
@@ -10,13 +10,11 @@ variable "project_name" {
 }
 
 variable "sf_auth_layer_arn" {
-  description = "ARN of the rackspace-sf-auth Lambda Layer"
-  type        = string
+  type = string
 }
 
 variable "sf_queries_layer_arn" {
-  description = "ARN of the rackspace-sf-queries Lambda Layer"
-  type        = string
+  type = string
 }
 
 variable "bedrock_agent_id" {
@@ -45,18 +43,18 @@ data "aws_region" "current" {}
 # Lambda Function
 ################################################################################
 
-data "archive_file" "action_group_zip" {
+data "archive_file" "shared_ag_zip" {
   type        = "zip"
-  source_file = "${path.module}/../../../lambda/action_group/handler.py"
-  output_path = "${path.module}/action_group.zip"
+  source_file = "${path.module}/../../../lambda/shared_action_group/handler.py"
+  output_path = "${path.module}/shared_action_group.zip"
 }
 
-resource "aws_lambda_function" "action_group" {
-  filename         = data.archive_file.action_group_zip.output_path
-  source_code_hash = data.archive_file.action_group_zip.output_base64sha256
-  function_name    = "${var.project_name}-action-group"
-  description      = "Bedrock Agent action group for case-specific operations - similar case search with enrichment, knowledge article search"
-  role             = aws_iam_role.action_group_role.arn
+resource "aws_lambda_function" "shared_action_group" {
+  filename         = data.archive_file.shared_ag_zip.output_path
+  source_code_hash = data.archive_file.shared_ag_zip.output_base64sha256
+  function_name    = "rackspace-sf-shared-action-group"
+  description      = "Shared Bedrock Agent action group for generic read-only Salesforce SOQL queries - reusable across all agents"
+  role             = aws_iam_role.shared_ag_role.arn
   handler          = "handler.lambda_handler"
   runtime          = "python3.11"
   timeout          = 60
@@ -70,36 +68,34 @@ resource "aws_lambda_function" "action_group" {
     }
   }
 
-  depends_on = [aws_cloudwatch_log_group.action_group_logs]
-
-  tags = { Project = var.project_name, ManagedBy = "Terraform" }
+  depends_on = [aws_cloudwatch_log_group.shared_ag_logs]
+  tags       = { Project = var.project_name, ManagedBy = "Terraform" }
 }
 
 ################################################################################
 # Bedrock Agent Action Group
 ################################################################################
 
-resource "aws_bedrockagent_agent_action_group" "similar_cases" {
-  action_group_name          = "SearchSimilarCases"
+resource "aws_bedrockagent_agent_action_group" "shared_sf_query" {
+  action_group_name          = "SalesforceQuery"
   agent_id                   = var.bedrock_agent_id
   agent_version              = "DRAFT"
-  description                = "Search Salesforce for similar closed cases by keywords and support reason"
+  description                = "Generic read-only Salesforce SOQL query - shared across all agents"
   skip_resource_in_use_check = true
 
   action_group_executor {
-    lambda = aws_lambda_function.action_group.arn
+    lambda = aws_lambda_function.shared_action_group.arn
   }
 
   api_schema {
-    payload = file("${path.module}/../../../lambda/action_group/openapi_schema.json")
+    payload = file("${path.module}/../../../lambda/shared_action_group/openapi_schema.json")
   }
 }
 
-# Allow Bedrock to invoke the action group Lambda
 resource "aws_lambda_permission" "bedrock_invoke" {
   statement_id  = "AllowBedrockInvoke"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.action_group.function_name
+  function_name = aws_lambda_function.shared_action_group.function_name
   principal     = "bedrock.amazonaws.com"
   source_arn    = "arn:aws:bedrock:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:agent/${var.bedrock_agent_id}"
 }
@@ -108,9 +104,9 @@ resource "aws_lambda_permission" "bedrock_invoke" {
 # IAM Role
 ################################################################################
 
-resource "aws_iam_role" "action_group_role" {
-  name        = "${var.project_name}-action-group-role"
-  description = "Execution role for ${var.project_name}-action-group Lambda - Secrets Manager, CloudWatch access"
+resource "aws_iam_role" "shared_ag_role" {
+  name        = "rackspace-sf-shared-ag-role"
+  description = "Execution role for rackspace-sf-shared-action-group Lambda - Secrets Manager, CloudWatch access"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -124,14 +120,14 @@ resource "aws_iam_role" "action_group_role" {
   tags = { Project = var.project_name, ManagedBy = "Terraform" }
 }
 
-resource "aws_iam_role_policy_attachment" "action_group_logs" {
-  role       = aws_iam_role.action_group_role.name
+resource "aws_iam_role_policy_attachment" "shared_ag_logs" {
+  role       = aws_iam_role.shared_ag_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-resource "aws_iam_role_policy" "action_group_secrets" {
-  name = "${var.project_name}-action-group-secrets"
-  role = aws_iam_role.action_group_role.id
+resource "aws_iam_role_policy" "shared_ag_secrets" {
+  name = "rackspace-sf-shared-ag-secrets"
+  role = aws_iam_role.shared_ag_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -147,8 +143,8 @@ resource "aws_iam_role_policy" "action_group_secrets" {
 # CloudWatch Logs
 ################################################################################
 
-resource "aws_cloudwatch_log_group" "action_group_logs" {
-  name              = "/aws/lambda/${var.project_name}-action-group"
+resource "aws_cloudwatch_log_group" "shared_ag_logs" {
+  name              = "/aws/lambda/rackspace-sf-shared-action-group"
   retention_in_days = var.log_retention_days
   tags              = { Project = var.project_name, ManagedBy = "Terraform" }
 }
@@ -158,9 +154,9 @@ resource "aws_cloudwatch_log_group" "action_group_logs" {
 ################################################################################
 
 output "function_name" {
-  value = aws_lambda_function.action_group.function_name
+  value = aws_lambda_function.shared_action_group.function_name
 }
 
 output "function_arn" {
-  value = aws_lambda_function.action_group.arn
+  value = aws_lambda_function.shared_action_group.arn
 }

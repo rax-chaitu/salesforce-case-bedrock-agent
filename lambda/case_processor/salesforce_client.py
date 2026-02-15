@@ -95,36 +95,62 @@ class SalesforceClient:
             return False
 
     def _format_analysis(self, analysis: dict[str, Any]) -> str:
-        """Format analysis dict as plain text for Long Text Area field."""
+        """Format analysis as HTML for Rich Text field."""
         parts: list[str] = []
-        if analysis.get("summary"):
-            parts.append(f"SUMMARY\n{analysis['summary']}")
-        if analysis.get("root_cause"):
-            parts.append(f"ROOT CAUSE\n{analysis['root_cause']}")
-        if analysis.get("recommendation"):
-            parts.append(f"RECOMMENDATION\n{analysis['recommendation']}")
-        if analysis.get("estimated_resolution"):
-            parts.append(f"ESTIMATED RESOLUTION\n{analysis['estimated_resolution']}")
+        sections = [
+            ("summary", "Summary"),
+            ("root_cause", "Root Cause"),
+            ("recommendation", "Recommendation"),
+            ("estimated_resolution", "Estimated Resolution"),
+            ("category", "Category"),
+            ("severity", "Severity"),
+        ]
+        for key, label in sections:
+            if analysis.get(key):
+                parts.append(f"<b>{label}</b><br/>{analysis[key]}")
+        # If agent returned very little, dump all string fields as fallback
+        if len(parts) <= 1:
+            for k, v in analysis.items():
+                if isinstance(v, str) and v and k not in ("analyzed_date", "ai_disclaimer") and not any(k == s[0] for s in sections):
+                    parts.append(f"<b>{k.replace('_', ' ').title()}</b><br/>{v}")
         if analysis.get("escalation_needed") and analysis.get("escalation_reason"):
-            parts.append(f"ESCALATION REQUIRED\n{analysis['escalation_reason']}")
-        if analysis.get("category"):
-            parts.append(f"CATEGORY\n{analysis['category']}")
+            parts.append(f"<b>Escalation Required</b><br/>{analysis['escalation_reason']}")
         if analysis.get("kb_articles"):
             articles = analysis["kb_articles"]
             if isinstance(articles, list) and articles:
-                articles_text = "\n".join(f"• {a}" for a in articles)
-                parts.append(f"KB SOURCES\n{articles_text}")
-        parts.append("[AI-Generated Analysis - Please verify before taking action]")
-        return "\n\n".join(parts) if parts else json.dumps(analysis, indent=2)
+                sf = self._get_connection()
+                base = f"https://{sf.sf_instance}" if sf else ""
+                items = []
+                for a in articles:
+                    if base and isinstance(a, str):
+                        url_name = a.replace(" ", "-")
+                        items.append(f'<li><a href="{base}/articles/Knowledge/{url_name}">{a}</a></li>')
+                    else:
+                        items.append(f"<li>{a}</li>")
+                parts.append(f"<b>KB Sources</b><ul>{''.join(items)}</ul>")
+        parts.append("<i>[AI-Generated Analysis - Please verify before taking action]</i>")
+        return "<br/><br/>".join(parts) if parts else json.dumps(analysis, indent=2)
 
     def _format_steps(self, steps: list[str]) -> str:
-        """Format steps list as plain numbered text."""
+        """Format steps as HTML with section headers for Rich Text field."""
         if not steps:
             return ""
-        clean_steps = [re.sub(r'^\d+\.\s*', '', step.strip()) for step in steps]
-        formatted = "\n".join(f"{i + 1}. {step}" for i, step in enumerate(clean_steps))
-        formatted += "\n\n[AI-Generated Suggestions - Please verify before taking action]"
-        return formatted
+        html_parts = []
+        current_items = []
+        for step in steps:
+            s = step.strip()
+            # Section headers (ADMIN STEPS:, USER SELF-SERVICE STEPS:)
+            if s.endswith("STEPS:") or s.endswith("STEPS"):
+                if current_items:
+                    html_parts.append("<ol>" + "".join(f"<li>{i}</li>" for i in current_items) + "</ol>")
+                    current_items = []
+                html_parts.append(f"<br/><b>{s}</b>")
+            else:
+                current_items.append(re.sub(r'^\d+\.\s*', '', s))
+        if current_items:
+            html_parts.append("<ol>" + "".join(f"<li>{i}</li>" for i in current_items) + "</ol>")
+        html_parts.append("<i>[AI-Generated Suggestions - Please verify before taking action]</i>")
+        return "".join(html_parts)
 
     def _format_similar_cases(self, cases: list[str]) -> str:
         """Format similar cases as HTML hyperlinks with subject for Rich Text field."""

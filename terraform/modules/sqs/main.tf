@@ -24,10 +24,11 @@ variable "message_retention" {
 ################################################################################
 
 resource "aws_sqs_queue" "case_analysis" {
-  name                       = "${var.project_name}-case-analysis"
+  name                       = "${var.project_name}-queue"
   visibility_timeout_seconds = var.visibility_timeout
   message_retention_seconds  = var.message_retention
   receive_wait_time_seconds  = 20 # Long polling
+  sqs_managed_sse_enabled    = true
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.dlq.arn
@@ -45,7 +46,7 @@ resource "aws_sqs_queue" "case_analysis" {
 ################################################################################
 
 resource "aws_sqs_queue" "dlq" {
-  name                      = "${var.project_name}-case-analysis-dlq"
+  name                      = "${var.project_name}-queue-dlq"
   message_retention_seconds = var.message_retention
 
   tags = {

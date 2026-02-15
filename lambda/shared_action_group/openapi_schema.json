@@ -1,0 +1,53 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Salesforce Generic Query",
+    "version": "1.0.0",
+    "description": "Generic read-only SOQL query against any Salesforce object. Shared across all agents."
+  },
+  "paths": {
+    "/querySalesforce": {
+      "post": {
+        "operationId": "querySalesforce",
+        "summary": "Execute a read-only SOQL query against any Salesforce object",
+        "description": "Runs a SELECT SOQL query against Salesforce and returns the results. Use this when you need to look up data from any Salesforce object (Account, Opportunity, Contact, User, etc.) that is not covered by the other actions. Only SELECT queries are allowed. Results are capped at 10 rows. Build valid SOQL syntax.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["soql"],
+                "properties": {
+                  "soql": {
+                    "type": "string",
+                    "description": "A valid SOQL SELECT query. Example: SELECT Name, StageName, Amount FROM Opportunity WHERE Id = '006xxx' LIMIT 5"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Query results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "records": {
+                      "type": "array",
+                      "items": { "type": "object" }
+                    },
+                    "total_found": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

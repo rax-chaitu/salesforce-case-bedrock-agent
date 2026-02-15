@@ -44,7 +44,7 @@ data "archive_file" "layer_zip" {
 resource "aws_lambda_layer_version" "sf_auth" {
   filename            = data.archive_file.layer_zip.output_path
   source_code_hash    = data.archive_file.layer_zip.output_base64sha256
-  layer_name          = "${var.project_name}-rackspace-sf-auth"
+  layer_name          = "rackspace-sf-auth"
   compatible_runtimes = ["python3.11", "python3.12"]
   description         = "Rackspace Salesforce JWT auth - reusable across all agent Lambdas"
 }

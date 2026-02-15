@@ -174,19 +174,6 @@ def handle_sqs_event(event: dict) -> dict:
             case_number = case_data.get("Case_Number__c", "")
             subject = case_data.get("Subject", "")
             description = case_data.get("Description", "")
-            case_type = case_data.get("Type", "")
-            priority = case_data.get("Priority", "Medium")
-            tool = case_data.get("Tool__c", "")
-            support_reason = case_data.get("Support_Reason__c", "")
-            reason = case_data.get("Reason", "")
-            record_type = case_data.get("Record_Type__c", "")
-            status = case_data.get("Status", "")
-            origin = case_data.get("Origin", "")
-            root_cause = case_data.get("Root_Cause_of_Inquiry__c", "")
-            case_type_detail = case_data.get("Case_Type__c", "")
-            department = case_data.get("Department__c", "")
-            segment = case_data.get("Segment__c", "")
-            opp_number = case_data.get("OpportunityNumber__c", "")
 
             # Idempotency check: skip if already analyzed today
             if salesforce.is_configured() and salesforce.is_already_analyzed(case_id):
@@ -196,25 +183,7 @@ def handle_sqs_event(event: dict) -> dict:
             logger.info("case_processing_started", case_id=case_id, case_number=case_number)
 
             # Analyze case with Bedrock Agent
-            analysis = analyze_case(
-                case_id=case_id,
-                case_number=case_number,
-                subject=subject,
-                description=description,
-                case_type=case_type,
-                priority=priority,
-                tool=tool,
-                support_reason=support_reason,
-                reason=reason,
-                record_type=record_type,
-                status=status,
-                origin=origin,
-                root_cause=root_cause,
-                case_type_detail=case_type_detail,
-                department=department,
-                segment=segment,
-                opp_number=opp_number,
-            )
+            analysis = analyze_case(case_id=case_id, case_data=case_data)
 
             # Update Salesforce Case with analysis
             if salesforce.is_configured():
@@ -246,55 +215,82 @@ def handle_sqs_event(event: dict) -> dict:
     }
 
 
-def analyze_case(
-    case_id: str, case_number: str, subject: str, description: str, case_type: str, priority: str,
-    tool: str = "", support_reason: str = "", reason: str = "", record_type: str = "",
-    status: str = "", origin: str = "", root_cause: str = "", case_type_detail: str = "",
-    department: str = "", segment: str = "", opp_number: str = ""
-) -> dict:
+def analyze_case(case_id: str, case_data: dict) -> dict:
     """
     Invoke Bedrock Agent to analyze case and return structured response.
-    
-    NOTE: Input sanitization is handled by callers (API handlers sanitize, SQS handler trusts SF data).
+    Sends full case payload as JSON — agent interprets field names directly.
     """
     bedrock = get_bedrock_client()
-    
-    # Build context lines, only include non-empty fields
-    fields = [
-        f"Case Number: {case_number}",
-        f"Subject: {subject}",
-        f"Description: {description}",
-        f"Type: {case_type}",
-        f"Priority: {priority}",
-    ]
-    optional = [
-        ("Tool", tool),
-        ("Support Reason", support_reason),
-        ("Case Reason", reason),
-        ("What Needs Updated", record_type),
-        ("Status", status),
-        ("Origin", origin),
-        ("Root Cause of Inquiry", root_cause),
-        ("Case Type", case_type_detail),
-        ("Department", department),
-        ("Segment", segment),
-        ("Opportunity Number", opp_number),
-    ]
-    for label, value in optional:
-        if value:
-            fields.append(f"{label}: {value}")
 
-    case_context = "\n".join(fields)
+    # Pre-compute search hints so agent doesn't waste LLM calls figuring them out
+    subject = case_data.get("Subject", case_data.get("Subject__c", ""))
+    support_reason = case_data.get("Support_Reason__c", "")
+    keywords = " ".join(w for w in subject.split()[:5] if len(w) > 2)
 
-    prompt = f"""Search the Knowledge Base for articles and resolved cases related to this case, then search for similar closed cases using the searchSimilarCases action, then analyze it:
+    # Deterministic KA search — agent picks bad keywords, so we do it ourselves
+    ka_titles = []
+    try:
+        sf = get_salesforce_client()
+        if sf.is_configured():
+            # Use subject + support_reason + tool for broad KA search
+            tool = case_data.get("Tool__c", "")
+            search_words = set()
+            for text in [subject, support_reason, tool]:
+                search_words.update(w for w in re.findall(r'\w+', text.replace("-", " ").replace("/", " ")) if len(w) > 3)
+            like_clauses = [f"Title LIKE '%{w}%'" for w in list(search_words)[:8]]
+            if like_clauses:
+                kav_query = (
+                    f"SELECT Title FROM KnowledgeArticleVersion "
+                    f"WHERE PublishStatus = 'Online' AND Language = 'en_US' "
+                    f"AND ({' OR '.join(like_clauses)}) LIMIT 10"
+                )
+                kav_results = sf.query(kav_query)
+                ka_titles = [r.get("Title", "") for r in kav_results.get("records", []) if r.get("Title")]
+                logger.info("ka_search_deterministic", count=len(ka_titles), titles=ka_titles)
+    except Exception as e:
+        logger.warning("ka_search_failed", error=str(e))
 
-{case_context}
+    prompt = f"""Analyze this Salesforce case. Use these search parameters:
+- searchSimilarCases: keywords="{keywords}", support_reason="{support_reason}"
+- searchKnowledgeArticles: keywords="{keywords}"
 
-Base your analysis and recommendations on Knowledge Base content. If KB articles describe specific tools, processes, or self-service options for this type of request, include those details in your response. Include any similar closed cases found in the similar_cases array."""
+Case data:
+{json.dumps(case_data, indent=2, default=str)}
+
+Search the SOP Knowledge Base first, then call searchSimilarCases, then call searchKnowledgeArticles, then return your analysis as JSON.
+Include these JSON fields in your response:
+- "admin_steps": steps a Salesforce admin takes to resolve this (navigation paths, buttons, fields)
+- "user_steps": steps the end user can do themselves based on the SOP Knowledge Base (e.g. submit request, click Request Access, navigate to record)
+- "similar_cases": case numbers from searchSimilarCases
+- "kb_articles": SOP document names and Knowledge Article titles
+- "recommendation": specific action needed"""
 
     session_id = f"case-{case_id}-{uuid.uuid4().hex[:8]}"
 
     response_text = bedrock.invoke_agent(prompt, session_id)
+
+    # Detect guardrail-blocked responses (input or output)
+    guardrail_phrases = [
+        "I cannot provide that information",  # blocked output
+        "I can only help with Salesforce case analysis",  # blocked input
+    ]
+    if any(phrase.lower() in response_text.lower() for phrase in guardrail_phrases):
+        logger.warning(f"Guardrail blocked agent output for case {case_id}", response_preview=response_text[:300])
+        return {
+            "summary": (
+                "AI analysis was partially blocked by content safety guardrails. "
+                "The case may contain content that triggered automated filtering. "
+                "Please review the case manually."
+            ),
+            "steps": ["1. Review the case description and comments manually.",
+                      "2. If this is a false positive, re-run analysis after editing sensitive content."],
+            "self_resolvable": False,
+            "similar_cases": [],
+            "kb_articles": [],
+            "recommendation": "Manual review required — guardrail content filter triggered on agent output.",
+            "guardrail_blocked": True,
+            "analyzed_date": datetime.utcnow().isoformat(),
+        }
 
     # Parse JSON from response (agent should return structured JSON)
     try:
@@ -321,6 +317,57 @@ Base your analysis and recommendations on Knowledge Base content. If KB articles
                 "kb_articles": [],
                 "recommendation": response_text,
             }
+
+    # Post-process: merge deterministic KA titles with agent's kb_articles
+    agent_articles = analysis.get("kb_articles", [])
+    # Combine: deterministic KA titles + agent's articles, dedupe
+    all_articles = list(dict.fromkeys(
+        [t for t in ka_titles] + [a if isinstance(a, str) else str(a) for a in agent_articles]
+    ))
+    # Score by subject + description keyword overlap
+    if all_articles:
+        desc_text = case_data.get("Description", case_data.get("Description__c", ""))
+        combined = f"{subject} {desc_text} {support_reason}"
+        case_words = {w.lower() for w in re.findall(r'\w+', combined) if len(w) >= 3}
+        scored = []
+        for article in all_articles:
+            title_words = {w.lower() for w in re.findall(r'\w+', article) if len(w) >= 3}
+            score = len(case_words & title_words)
+            if score >= 2:
+                scored.append((score, article))
+        if scored:
+            scored.sort(key=lambda x: x[0], reverse=True)
+            analysis["kb_articles"] = [a for _, a in scored[:5]]
+        elif all_articles:
+            # Nothing scored 2+, keep top 3 with 1+ match
+            fallback = [(len(case_words & {w.lower() for w in re.findall(r'\w+', a) if len(w) >= 3}), a)
+                        for a in all_articles]
+            fallback = [(s, a) for s, a in fallback if s >= 1]
+            fallback.sort(key=lambda x: x[0], reverse=True)
+            analysis["kb_articles"] = [a for _, a in fallback[:3]]
+
+    # Post-process: merge admin_steps + user_steps into single steps field for SF
+    admin_steps = analysis.get("admin_steps", [])
+    user_steps = analysis.get("user_steps", [])
+    existing_steps = analysis.get("steps", [])
+    if admin_steps or user_steps:
+        merged = []
+        if admin_steps:
+            merged.append("ADMIN STEPS:")
+            merged.extend(str(s) for s in admin_steps)
+        if user_steps:
+            merged.append("USER SELF-SERVICE STEPS:")
+            merged.extend(str(s) for s in user_steps)
+        analysis["steps"] = merged
+    elif existing_steps:
+        # Agent didn't use separate fields — check if user steps are missing
+        steps_text = " ".join(str(s) for s in existing_steps).lower()
+        has_self_service = any(p in steps_text for p in ["self-service", "self service", "yourself", "submit a request", "request form", "user step"])
+        if not has_self_service:
+            analysis["steps"] = (
+                ["ADMIN STEPS:"] + existing_steps +
+                ["USER SELF-SERVICE: Check the related Knowledge Article for self-service options."]
+            )
 
     analysis["analyzed_date"] = datetime.utcnow().isoformat()
     return analysis
@@ -412,7 +459,7 @@ def handle_health(origin: str = "") -> dict:
     salesforce = get_salesforce_client()
     health = {
         "status": "healthy",
-        "service": "salesforceagent-dual-mode",
+        "service": "sf-case-processor",
         "agent_id": os.environ.get("BEDROCK_AGENT_ID"),
         "salesforce_configured": salesforce.is_configured(),
         "timestamp": datetime.utcnow().isoformat(),
@@ -467,25 +514,17 @@ def handle_case_analyze(request_data: dict, origin: str = "") -> dict:
     elif not case_id:
         case_id = "test-" + uuid.uuid4().hex[:8]
 
-    analysis = analyze_case(
-        case_id=case_id,
-        case_number=sanitize_string(request_data["case_number"], 20, "case_number"),
-        subject=sanitize_string(request_data["subject"], MAX_SUBJECT_LENGTH, "subject"),
-        description=sanitize_string(request_data["description"], MAX_DESCRIPTION_LENGTH, "description"),
-        case_type=sanitize_string(request_data.get("type", ""), 100, "type"),
-        priority=sanitize_string(request_data.get("priority", "Medium"), 20, "priority"),
-        tool=sanitize_string(request_data.get("tool", ""), 100, "tool"),
-        support_reason=sanitize_string(request_data.get("support_reason", ""), 200, "support_reason"),
-        reason=sanitize_string(request_data.get("reason", ""), 200, "reason"),
-        record_type=sanitize_string(request_data.get("record_type", ""), 100, "record_type"),
-        status=sanitize_string(request_data.get("status", ""), 50, "status"),
-        origin=sanitize_string(request_data.get("origin", ""), 50, "origin"),
-        root_cause=sanitize_string(request_data.get("root_cause", ""), 200, "root_cause"),
-        case_type_detail=sanitize_string(request_data.get("case_type_detail", ""), 100, "case_type_detail"),
-        department=sanitize_string(request_data.get("department", ""), 100, "department"),
-        segment=sanitize_string(request_data.get("segment", ""), 100, "segment"),
-        opp_number=sanitize_string(request_data.get("opp_number", ""), 50, "opp_number"),
-    )
+    # Sanitize all string values for API input
+    case_data = {}
+    for key, value in request_data.items():
+        if key == "case_id":
+            continue
+        if isinstance(value, str):
+            case_data[key] = sanitize_string(value, MAX_DESCRIPTION_LENGTH, key)
+        else:
+            case_data[key] = value
+
+    analysis = analyze_case(case_id=case_id, case_data=case_data)
 
     return create_response(
         200,

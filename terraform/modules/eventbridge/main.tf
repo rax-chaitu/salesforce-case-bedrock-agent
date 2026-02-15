@@ -40,7 +40,7 @@ resource "aws_cloudwatch_event_bus" "partner" {
 
 resource "aws_cloudwatch_event_rule" "case_created" {
   depends_on     = [aws_cloudwatch_event_bus.partner]
-  name           = "${var.project_name}-case-created"
+  name           = "${var.project_name}-event-rule"
   description    = "Route Salesforce Case creation events to SQS"
   event_bus_name = var.salesforce_event_source
 

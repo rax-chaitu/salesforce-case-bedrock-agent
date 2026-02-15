@@ -1,0 +1,99 @@
+{
+  "description": "Ground truth test cases for regression testing the Bedrock agent. Run after any agent instruction, prompt, or model change.",
+  "test_cases": [
+    {
+      "id": "GT-001",
+      "name": "Opportunity Team Member",
+      "input": {
+        "case_number": "GT-OPPTEAM-001",
+        "subject": "Add John Smith as Client Partner on Opportunity Team",
+        "description": "Please add John Smith as a Client Partner role on the Opportunity Team for Opportunity 4601706.",
+        "priority": "Medium",
+        "Support_Reason__c": "Opportunity_Team",
+        "type": "Request"
+      },
+      "expected": {
+        "self_resolvable": false,
+        "category": "Opportunity",
+        "steps_must_contain": ["Opportunity Team", "Add Team Member", "Client Partner"],
+        "steps_must_not_contain": ["refer to KB", "see article"],
+        "kb_articles_relevant": ["SUBMIT AN OPPORTUNITY TEAM MEMBER REQUEST"],
+        "kb_articles_irrelevant": ["Sales Managers", "Moving An Opportunity"],
+        "similar_cases_min": 3,
+        "recommendation_must_not_contain": ["steps above", "steps below", "Follow the steps"]
+      }
+    },
+    {
+      "id": "GT-002",
+      "name": "Debook Opportunity",
+      "input": {
+        "case_number": "GT-DEBOOK-001",
+        "subject": "Debook Opportunity 4500123 - Customer cancelled",
+        "description": "Customer has cancelled their order. Need to debook the opportunity and reverse the booking.",
+        "priority": "High",
+        "Support_Reason__c": "Debook",
+        "type": "Request"
+      },
+      "expected": {
+        "self_resolvable": false,
+        "steps_must_contain": ["debook", "opportunity"],
+        "steps_must_not_contain": ["refer to KB"],
+        "similar_cases_min": 3,
+        "recommendation_must_not_contain": ["steps above", "steps below"]
+      }
+    },
+    {
+      "id": "GT-003",
+      "name": "Opportunity Amount Change",
+      "input": {
+        "case_number": "GT-AMOUNT-001",
+        "subject": "Change opportunity amount for Opp 4601234",
+        "description": "Need to update the MRR amount on opportunity 4601234 from $5000 to $7500 due to contract amendment.",
+        "priority": "Medium",
+        "Support_Reason__c": "Amount",
+        "type": "Request"
+      },
+      "expected": {
+        "self_resolvable": false,
+        "steps_must_contain": ["amount", "opportunity"],
+        "similar_cases_min": 3,
+        "recommendation_must_not_contain": ["steps above", "steps below"]
+      }
+    },
+    {
+      "id": "GT-004",
+      "name": "User Access - Tool Request",
+      "input": {
+        "case_number": "GT-ACCESS-001",
+        "subject": "Need Revegy access for new hire Jane Doe",
+        "description": "New hire Jane Doe (jane.doe@rackspace.com) needs access to Revegy tool for account planning.",
+        "priority": "Medium",
+        "Support_Reason__c": "User_Access",
+        "type": "Request"
+      },
+      "expected": {
+        "self_resolvable": false,
+        "category": "User_Access",
+        "steps_must_contain": ["Revegy", "access"],
+        "similar_cases_min": 1,
+        "recommendation_must_not_contain": ["steps above", "steps below"]
+      }
+    },
+    {
+      "id": "GT-005",
+      "name": "Simple Self-Service Question",
+      "input": {
+        "case_number": "GT-SELF-001",
+        "subject": "How do I update my opportunity close date",
+        "description": "I need to change the close date on my opportunity. How do I do this?",
+        "priority": "Low",
+        "type": "Question"
+      },
+      "expected": {
+        "self_resolvable": true,
+        "steps_must_contain": ["close date", "opportunity"],
+        "recommendation_must_not_contain": ["steps above", "steps below"]
+      }
+    }
+  ]
+}
