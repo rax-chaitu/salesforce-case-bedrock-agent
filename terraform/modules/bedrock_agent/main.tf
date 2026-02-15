@@ -74,7 +74,7 @@ resource "aws_bedrock_guardrail" "agent_guardrail" {
     }
     filters_config {
       type            = "PROMPT_ATTACK"
-      input_strength  = "HIGH"
+      input_strength  = "LOW"
       output_strength = "NONE"
     }
   }

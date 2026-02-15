@@ -131,6 +131,18 @@ response = requests.post(f"{login_url}/services/oauth2/token", data={
 | Guardrail tuning | `PROMPT_ATTACK` HIGH→LOW (case data is trusted from SF, not user input) |
 | Ground truth tests | 5 regression test cases for quality validation |
 
+### Phase 6: New Sandbox Deployment & Quality Hardening (Feb 15, 2026)
+
+| Enhancement | Impact |
+|-------------|--------|
+| New AWS sandbox | Migrated to account `783330585869` (profile `SANDBOX15FEB`) |
+| Conditional EventBridge | Event rule/target skip creation when `salesforce_event_source` is empty |
+| Guardrail in Terraform | `PROMPT_ATTACK` LOW set in `.tf` — no more manual API fix after deploy |
+| Case-insensitive KB dedup | Deterministic + agent KB articles merged without caps duplicates |
+| Self_Resolvable auto-set | `self_resolvable = true` when agent returns `user_steps` |
+| Enforced prompt fields | All JSON fields (summary, category, severity, root_cause, etc.) marked REQUIRED — fixes Nova Pro inconsistency |
+| Raw response logging | `agent_raw_response` event logged for debugging agent output |
+
 ---
 
 ## Knowledge Base Content

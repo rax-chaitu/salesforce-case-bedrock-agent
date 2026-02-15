@@ -39,6 +39,7 @@ resource "aws_cloudwatch_event_bus" "partner" {
 ################################################################################
 
 resource "aws_cloudwatch_event_rule" "case_created" {
+  count          = var.salesforce_event_source != "" ? 1 : 0
   depends_on     = [aws_cloudwatch_event_bus.partner]
   name           = "${var.project_name}-event-rule"
   description    = "Route Salesforce Case creation events to SQS"
@@ -46,7 +47,7 @@ resource "aws_cloudwatch_event_rule" "case_created" {
 
   # Pattern matches Integration_Event__e with Object_Name__c = Case
   event_pattern = jsonencode({
-    source = [var.salesforce_event_source != "" ? var.salesforce_event_source : "aws.partner/salesforce.com"]
+    source = [var.salesforce_event_source]
     detail = {
       payload = {
         Object_Name__c = ["Case"]
@@ -66,7 +67,8 @@ resource "aws_cloudwatch_event_rule" "case_created" {
 ################################################################################
 
 resource "aws_cloudwatch_event_target" "sqs_target" {
-  rule           = aws_cloudwatch_event_rule.case_created.name
+  count          = var.salesforce_event_source != "" ? 1 : 0
+  rule           = aws_cloudwatch_event_rule.case_created[0].name
   event_bus_name = var.salesforce_event_source
   target_id      = "case-analysis-queue"
   arn            = var.sqs_queue_arn
@@ -76,8 +78,6 @@ resource "aws_cloudwatch_event_target" "sqs_target" {
     maximum_event_age_in_seconds = 3600
     maximum_retry_attempts       = 3
   }
-
-  # Dead letter queue handled by SQS itself
 }
 
 ################################################################################
@@ -85,9 +85,9 @@ resource "aws_cloudwatch_event_target" "sqs_target" {
 ################################################################################
 
 output "rule_arn" {
-  value = aws_cloudwatch_event_rule.case_created.arn
+  value = var.salesforce_event_source != "" ? aws_cloudwatch_event_rule.case_created[0].arn : ""
 }
 
 output "rule_name" {
-  value = aws_cloudwatch_event_rule.case_created.name
+  value = var.salesforce_event_source != "" ? aws_cloudwatch_event_rule.case_created[0].name : ""
 }

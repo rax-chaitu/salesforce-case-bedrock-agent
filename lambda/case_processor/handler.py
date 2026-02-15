@@ -258,18 +258,24 @@ Case data:
 {json.dumps(case_data, indent=2, default=str)}
 
 Search the SOP Knowledge Base first, then call searchSimilarCases, then call searchKnowledgeArticles, then return your analysis as JSON.
-Include these JSON fields in your response:
+ALL of these JSON fields are REQUIRED in your response — do not skip any:
+- "summary": 2-3 sentence analysis of what is being requested and why
+- "category": Opportunity | User_Access | Account | Data_Update | Pricing | Configuration | Integration | Other
+- "severity": Critical | High | Medium | Low
+- "root_cause": what triggered this request
 - "admin_steps": steps a Salesforce admin takes to resolve this (navigation paths, buttons, fields)
 - "user_steps": steps the end user can do themselves based on the SOP Knowledge Base (e.g. submit request, click Request Access, navigate to record)
 - "similar_cases": case numbers from searchSimilarCases
 - "kb_articles": SOP document names and Knowledge Article titles
-- "recommendation": specific action needed"""
+- "estimated_resolution": time estimate with brief explanation
+- "recommendation": specific action needed
+- "self_resolvable": true if user can self-service, false if admin-only"""
 
     session_id = f"case-{case_id}-{uuid.uuid4().hex[:8]}"
 
     response_text = bedrock.invoke_agent(prompt, session_id)
 
-    # Detect guardrail-blocked responses (input or output)
+    logger.info({"event": "agent_raw_response", "case_id": case_id, "response_length": len(response_text), "response_preview": response_text[:2000]})
     guardrail_phrases = [
         "I cannot provide that information",  # blocked output
         "I can only help with Salesforce case analysis",  # blocked input
@@ -320,10 +326,13 @@ Include these JSON fields in your response:
 
     # Post-process: merge deterministic KA titles with agent's kb_articles
     agent_articles = analysis.get("kb_articles", [])
-    # Combine: deterministic KA titles + agent's articles, dedupe
-    all_articles = list(dict.fromkeys(
-        [t for t in ka_titles] + [a if isinstance(a, str) else str(a) for a in agent_articles]
-    ))
+    # Combine: deterministic KA titles + agent's articles, dedupe (case-insensitive)
+    seen_lower = set()
+    all_articles = []
+    for t in list(ka_titles) + [a if isinstance(a, str) else str(a) for a in agent_articles]:
+        if t.lower() not in seen_lower:
+            seen_lower.add(t.lower())
+            all_articles.append(t)
     # Score by subject + description keyword overlap
     if all_articles:
         desc_text = case_data.get("Description", case_data.get("Description__c", ""))
@@ -359,6 +368,8 @@ Include these JSON fields in your response:
             merged.append("USER SELF-SERVICE STEPS:")
             merged.extend(str(s) for s in user_steps)
         analysis["steps"] = merged
+        if user_steps:
+            analysis["self_resolvable"] = True
     elif existing_steps:
         # Agent didn't use separate fields — check if user steps are missing
         steps_text = " ".join(str(s) for s in existing_steps).lower()
