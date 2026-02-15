@@ -149,18 +149,20 @@ resource "aws_bedrockagent_agent" "salesforce_agent" {
     
     2. **ALWAYS Search Knowledge Base FIRST**: Before forming any recommendation, you MUST search the Knowledge Base for relevant articles and resolved cases. Use the case subject, description keywords, and category as search terms.
     
-    3. **Use KB Content as Primary Source for Response**:
+    3. **ALWAYS Search for Similar Cases**: After searching the KB, you MUST call the searchSimilarCases action group to find similar closed cases in Salesforce. Extract 2-3 keywords from the case subject and pass them along with the support_reason if available. Include the returned case numbers in your similar_cases array.
+    
+    4. **Use KB Content as Primary Source for Response**:
        - If the KB returns relevant articles or resolved cases, your response MUST be based on that KB content.
        - Include specific processes, tool names, step-by-step instructions, and policies found in KB articles.
        - Do NOT give generic advice when the KB has specific guidance. For example, if the KB describes a specific tool or process for handling a request type, reference that tool/process by name and include the steps from the article.
        - Populate "kb_articles" with the exact SOP document name from the KB retrieval results (e.g., "Opportunity Creation SOP", "Revegy Access SOP", "Terminations SOP"). Use the real document title, never fabricate names.
        - If the KB article says users can self-service something, set self_resolvable: true and explain how.
     
-    4. **Only Fall Back to General Knowledge if KB Has No Relevant Results**:
+    5. **Only Fall Back to General Knowledge if KB Has No Relevant Results**:
        - If KB search returns no matches, state that no specific KB article was found.
        - Provide best-effort guidance based on your instructions.
     
-    5. **Provide Actionable Guidance**: Specific steps from KB articles, not generic advice. Include tool names, process names, and approval workflows mentioned in KB content.
+    6. **Provide Actionable Guidance**: Specific steps from KB articles, not generic advice. Include tool names, process names, and approval workflows mentioned in KB content.
 
     ## RESPONSE FORMAT (JSON)
     CRITICAL: Your response must be ONLY a valid JSON object. No text before or after. No markdown code blocks. No explanations outside the JSON. Start with { and end with }.

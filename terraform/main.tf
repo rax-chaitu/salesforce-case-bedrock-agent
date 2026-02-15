@@ -64,6 +64,11 @@ module "eventbridge" {
   salesforce_event_source = var.salesforce_event_source
 }
 
+module "lambda_layer" {
+  source       = "./modules/lambda_layer"
+  project_name = var.project_name
+}
+
 module "lambda" {
   source = "./modules/lambda"
 
@@ -75,10 +80,22 @@ module "lambda" {
   bedrock_agent_arn      = module.bedrock_agent.agent_arn
   knowledge_base_id      = var.knowledge_base_id
   sqs_queue_arn          = module.sqs.queue_arn
+  sf_auth_layer_arn      = module.lambda_layer.layer_arn
 
   # Salesforce JWT (matches Glue pattern)
   salesforce_secret_name  = module.secrets.secret_name
   salesforce_environment  = var.salesforce_environment
+}
+
+module "action_group" {
+  source = "./modules/action_group"
+
+  project_name           = var.project_name
+  sf_auth_layer_arn      = module.lambda_layer.layer_arn
+  bedrock_agent_id       = module.bedrock_agent.agent_id
+  salesforce_secret_name = module.secrets.secret_name
+  salesforce_environment = var.salesforce_environment
+  log_retention_days     = var.log_retention_days
 }
 
 ################################################################################
@@ -123,6 +140,16 @@ output "sqs_dlq_url" {
 output "knowledge_base_id" {
   description = "Knowledge Base ID"
   value       = var.knowledge_base_id
+}
+
+output "action_group_function_name" {
+  description = "Action Group Lambda function name"
+  value       = module.action_group.function_name
+}
+
+output "sf_auth_layer_arn" {
+  description = "Rackspace SF Auth Lambda Layer ARN"
+  value       = module.lambda_layer.layer_arn
 }
 
 # Disabled - using S3 + AppFlow approach

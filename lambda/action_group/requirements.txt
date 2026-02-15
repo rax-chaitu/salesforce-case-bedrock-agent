@@ -1,0 +1,2 @@
+# No additional deps - auth comes from rackspace_sf_auth layer
+# simple-salesforce also in layer

@@ -286,11 +286,11 @@ def analyze_case(
 
     case_context = "\n".join(fields)
 
-    prompt = f"""Search the Knowledge Base for articles and resolved cases related to this case, then analyze it using the KB results:
+    prompt = f"""Search the Knowledge Base for articles and resolved cases related to this case, then search for similar closed cases using the searchSimilarCases action, then analyze it:
 
 {case_context}
 
-Base your analysis and recommendations on Knowledge Base content. If KB articles describe specific tools, processes, or self-service options for this type of request, include those details in your response."""
+Base your analysis and recommendations on Knowledge Base content. If KB articles describe specific tools, processes, or self-service options for this type of request, include those details in your response. Include any similar closed cases found in the similar_cases array."""
 
     session_id = f"case-{case_id}-{uuid.uuid4().hex[:8]}"
 

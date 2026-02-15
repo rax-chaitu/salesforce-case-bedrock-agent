@@ -1,0 +1,73 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Salesforce Similar Cases Search",
+    "version": "1.0.0",
+    "description": "Search Salesforce for similar closed cases to help resolve new cases."
+  },
+  "paths": {
+    "/searchSimilarCases": {
+      "post": {
+        "operationId": "searchSimilarCases",
+        "summary": "Search for similar closed Salesforce cases by keywords and support reason",
+        "description": "Queries Salesforce for closed cases matching the given keywords and optional support reason. Returns case details including subject, description, closure notes, and comments. Use this to find how similar cases were resolved in the past.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["keywords"],
+                "properties": {
+                  "keywords": {
+                    "type": "string",
+                    "description": "Space-separated keywords from the case subject to search for (e.g., 'opportunity amount change'). Up to 3 keywords are used for matching."
+                  },
+                  "support_reason": {
+                    "type": "string",
+                    "description": "Optional Support_Reason__c value to filter by (e.g., 'Configuration', 'Implementation', 'User Access')."
+                  },
+                  "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of similar cases to return (1-10, default 5).",
+                    "default": 5
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Similar cases found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cases": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "case_number": { "type": "string" },
+                          "subject": { "type": "string" },
+                          "support_reason": { "type": "string" },
+                          "description": { "type": "string" },
+                          "closure_notes": { "type": "string" },
+                          "comments": { "type": "string" },
+                          "closed_date": { "type": "string" }
+                        }
+                      }
+                    },
+                    "total_found": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

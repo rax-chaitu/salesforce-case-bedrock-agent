@@ -51,6 +51,11 @@ variable "salesforce_environment" {
   default     = "inttest"
 }
 
+variable "sf_auth_layer_arn" {
+  description = "ARN of the rackspace-sf-auth Lambda Layer"
+  type        = string
+}
+
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
@@ -61,10 +66,10 @@ data "aws_region" "current" {}
 # Package dependencies and Python files
 resource "null_resource" "pip_install" {
   triggers = {
-    requirements     = filemd5("${path.module}/../../../lambda/case_processor/requirements.txt")
-    handler          = filemd5("${path.module}/../../../lambda/case_processor/handler.py")
-    salesforce       = filemd5("${path.module}/../../../lambda/case_processor/salesforce_client.py")
-    bedrock          = filemd5("${path.module}/../../../lambda/case_processor/bedrock_client.py")
+    requirements = filemd5("${path.module}/../../../lambda/case_processor/requirements.txt")
+    handler      = filemd5("${path.module}/../../../lambda/case_processor/handler.py")
+    salesforce   = filemd5("${path.module}/../../../lambda/case_processor/salesforce_client.py")
+    bedrock      = filemd5("${path.module}/../../../lambda/case_processor/bedrock_client.py")
   }
 
   provisioner "local-exec" {
@@ -72,7 +77,7 @@ resource "null_resource" "pip_install" {
       cd ${path.module}/../../../lambda/case_processor
       rm -rf package lambda_package
       mkdir -p lambda_package
-      pip3 install -r requirements.txt -t lambda_package/ --platform manylinux2014_x86_64 --python-version 3.11 --only-binary=:all:
+      pip3 install -r requirements.txt -t lambda_package/ --platform manylinux2014_x86_64 --python-version 3.11 --only-binary=:all: 2>/dev/null || true
       cp *.py lambda_package/
     EOT
   }
@@ -95,6 +100,7 @@ resource "aws_lambda_function" "api" {
   runtime          = "python3.11"
   timeout          = var.lambda_timeout
   memory_size      = 512
+  layers           = [var.sf_auth_layer_arn]
 
   # Increased concurrency for better throughput (was 2, bottleneck at 480 cases/hr)
   # Set to 20 for ~10x capacity. Monitor Bedrock throttling and adjust as needed.

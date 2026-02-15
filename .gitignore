@@ -5,8 +5,9 @@ terraform/terraform.tfstate
 terraform/terraform.tfstate.backup
 terraform/*.tfvars
 !terraform/terraform.tfvars.example
-terraform/modules/*/lambda_function.zip
+terraform/modules/*/*.zip
 terraform/*.zip
+terraform/.terraform.tfstate.lock.info
 
 # Python
 __pycache__/
@@ -52,7 +53,10 @@ Thumbs.db
 
 # Logs
 *.log
-lambda/case_processor/lambda_package/
+# Lambda build artifacts
+lambda/**/lambda_package/
+lambda/**/package/
+lambda/layers/*/python/
 
 # Terraform plan files
 *.tfplan
