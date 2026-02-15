@@ -32,6 +32,72 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 ################################################################################
+# Guardrails
+# Blocks PII in responses, restricts to Salesforce-related topics only.
+# Prevents agent from answering off-topic questions.
+################################################################################
+
+resource "aws_bedrock_guardrail" "agent_guardrail" {
+  name                      = "${var.project_name}-guardrail"
+  blocked_input_messaging   = "I can only help with Salesforce case analysis. Please provide a case for analysis."
+  blocked_outputs_messaging = "I cannot provide that information. Please contact your Salesforce admin."
+  description               = "Guardrail for SF Case Analysis Agent - PII filtering and topic restriction"
+
+  content_policy_config {
+    filters_config {
+      type            = "HATE"
+      input_strength  = "HIGH"
+      output_strength = "HIGH"
+    }
+    filters_config {
+      type            = "INSULTS"
+      input_strength  = "HIGH"
+      output_strength = "HIGH"
+    }
+    filters_config {
+      type            = "SEXUAL"
+      input_strength  = "HIGH"
+      output_strength = "HIGH"
+    }
+    filters_config {
+      type            = "VIOLENCE"
+      input_strength  = "HIGH"
+      output_strength = "HIGH"
+    }
+    filters_config {
+      type            = "MISCONDUCT"
+      input_strength  = "HIGH"
+      output_strength = "HIGH"
+    }
+    filters_config {
+      type            = "PROMPT_ATTACK"
+      input_strength  = "HIGH"
+      output_strength = "NONE"
+    }
+  }
+
+  sensitive_information_policy_config {
+    pii_entities_config {
+      type   = "US_SOCIAL_SECURITY_NUMBER"
+      action = "ANONYMIZE"
+    }
+    pii_entities_config {
+      type   = "CREDIT_DEBIT_CARD_NUMBER"
+      action = "ANONYMIZE"
+    }
+  }
+
+  topic_policy_config {
+    topics_config {
+      name       = "Off-Topic"
+      definition = "Questions completely unrelated to Salesforce, CRM, IT support, or Rackspace business processes. For example: personal advice, creative writing, general knowledge trivia, coding homework."
+      type       = "DENY"
+      examples   = ["What is the weather today", "Write me a poem", "Help me with my homework", "Tell me a joke"]
+    }
+  }
+}
+
+################################################################################
 # Bedrock Agent
 ################################################################################
 
@@ -39,15 +105,21 @@ resource "aws_bedrockagent_agent" "salesforce_agent" {
   agent_name              = var.project_name
   agent_resource_role_arn = aws_iam_role.bedrock_agent_role.arn
   foundation_model        = var.foundation_model
+  guardrail_configuration {
+    guardrail_identifier = aws_bedrock_guardrail.agent_guardrail.guardrail_id
+    guardrail_version    = "DRAFT"
+  }
 
-  # Enable memory for cross-session context
-  memory_configuration = [{
-    enabled_memory_types           = ["SESSION_SUMMARY"]
-    storage_days                   = 30
-    session_summary_configuration  = [{
-      max_recent_sessions = 20
-    }]
-  }]
+  # Memory disabled - each case analysis is a single-shot Lambda invocation
+  # with no follow-up conversation, so session memory adds latency with no benefit.
+  # Uncomment below to re-enable if agent becomes conversational in the future.
+  # memory_configuration = [{
+  #   enabled_memory_types           = ["SESSION_SUMMARY"]
+  #   storage_days                   = 30
+  #   session_summary_configuration  = [{
+  #     max_recent_sessions = 20
+  #   }]
+  # }]
 
   instruction = <<-EOT
     You are a Salesforce Case Analysis Agent for Rackspace Technology. You help SF admins and sellers resolve internal Salesforce requests faster by analyzing case details and searching the Knowledge Base.
@@ -257,6 +329,7 @@ resource "null_resource" "prepare_agent" {
   triggers = {
     agent_id    = aws_bedrockagent_agent.salesforce_agent.agent_id
     instruction = md5(aws_bedrockagent_agent.salesforce_agent.instruction)
+    model       = var.foundation_model
     kb_id       = var.knowledge_base_id
   }
 
@@ -273,14 +346,28 @@ resource "null_resource" "prepare_agent" {
 
 ################################################################################
 # Agent Aliases
-# Note: Updating alias without routing_configuration creates new version
+#
+# DEV ALIAS: Auto-updates on every terraform apply when instructions or model
+#   change. Description hash triggers alias update, which creates a new numbered
+#   version from DRAFT and points the alias to it. Safe for development/testing.
+#
+# PROD ALIAS: Manually controlled. lifecycle.ignore_changes prevents terraform
+#   from changing the routing. To promote to PROD:
+#   1. Test thoroughly on DEV alias
+#   2. Note the DEV alias version number (check AWS console or CLI)
+#   3. Manually update PROD alias:
+#      aws bedrock-agent update-agent-alias \
+#        --agent-id YFGXELIXEF --agent-alias-id <PROD_ALIAS_ID> \
+#        --agent-alias-name PROD --region us-east-1
+#   This creates a new version from current DRAFT and points PROD to it.
+#   NEVER auto-promote to PROD — always test on DEV first.
 ################################################################################
 
 resource "aws_bedrockagent_agent_alias" "dev_alias" {
   depends_on       = [null_resource.prepare_agent]
   agent_id         = aws_bedrockagent_agent.salesforce_agent.agent_id
   agent_alias_name = "DEV"
-  description      = "Development alias - v${md5(aws_bedrockagent_agent.salesforce_agent.instruction)}"
+  description      = "Development alias - v${md5("${aws_bedrockagent_agent.salesforce_agent.instruction}${var.foundation_model}")}"
   tags             = { Environment = "development", Project = var.project_name }
 
   # No routing_configuration = creates new version from DRAFT and points to it
@@ -345,6 +432,20 @@ resource "aws_iam_role_policy" "bedrock_agent_kb_policy" {
       Effect   = "Allow"
       Action   = ["bedrock:Retrieve", "bedrock:RetrieveAndGenerate"]
       Resource = ["arn:aws:bedrock:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:knowledge-base/${var.knowledge_base_id}"]
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "bedrock_agent_guardrail_policy" {
+  name = "${var.project_name}-guardrail-policy"
+  role = aws_iam_role.bedrock_agent_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["bedrock:ApplyGuardrail"]
+      Resource = [aws_bedrock_guardrail.agent_guardrail.guardrail_arn]
     }]
   })
 }

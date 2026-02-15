@@ -8,7 +8,6 @@ import os
 import csv
 import re
 from docx import Document
-from pathlib import Path
 from datetime import datetime
 
 SOP_DIR = os.path.expanduser("~/Downloads/SFDC SOP Files")
