@@ -65,8 +65,8 @@ Migrated to standard **Amazon Bedrock Agents**:
 | Aspect | AgentCore (Old) | Bedrock Agent (Current) |
 |--------|-----------------|-------------------------|
 | Container Management | ECR + Docker | ❌ None |
-| Lambda Code | 465 lines | ~150 lines |
-| Dependencies | strands-agents, mcp | boto3 only |
+| Lambda Code | 465 lines | ~300 lines (across 3 Lambdas) |
+| Dependencies | strands-agents, mcp | boto3 + shared Lambda layers |
 | IAM Policies | 8+ | 3 |
 | Monthly Cost | ~$15 | ~$8 |
 
@@ -117,6 +117,20 @@ response = requests.post(f"{login_url}/services/oauth2/token", data={
 | AI Feedback loop | Picklist + comments for agents to rate AI accuracy |
 | Permission set | `AI_Case_Analysis_User` - read AI fields, edit feedback |
 
+### Phase 5: Shared Layers, Deterministic Quality Fixes (Feb 2026)
+
+| Enhancement | Impact |
+|-------------|--------|
+| Shared Lambda layers | `rackspace_sf_auth` + `rackspace_sf_queries` — reusable across agents |
+| Shared action group | Generic SOQL query Lambda for future agents |
+| Deterministic KA search | case_processor queries SF KA directly using subject+support_reason+tool words (bypasses Nova Pro bad keyword selection) |
+| kb_articles scoring | Score by keyword overlap (threshold ≥2), fallback to ≥1 top 3 |
+| Similar cases AND filter | `support_reason AND keywords` instead of OR — no more unrelated cases |
+| Dual-path steps | Separate `admin_steps` + `user_steps` JSON fields, merged with section headers |
+| HTML step formatting | Bold section headers (ADMIN STEPS / USER SELF-SERVICE STEPS) + numbered `<ol>` per section |
+| Guardrail tuning | `PROMPT_ATTACK` HIGH→LOW (case data is trusted from SF, not user input) |
+| Ground truth tests | 5 regression test cases for quality validation |
+
 ---
 
 ## Knowledge Base Content
@@ -155,7 +169,7 @@ The agent's recommendations are powered by **80+ SOP documents** organized by ca
 | Data Source ID | `<YOUR_DATASOURCE_ID>` |
 | API Gateway | `<FROM_TERRAFORM_OUTPUT>` |
 | SQS Queue | `salesforceagent-case-analysis` |
-| Lambda Function | `salesforceagent-api` |
+| Lambda Function | `sf-case-processor` |
 | SF Secret Name | `salesforce-inttest-sandbox-jwt` |
 | SF Environment | `inttest` or `production` |
 
@@ -477,11 +491,9 @@ sf data create record --sobject Case \
 **Solution**: JWT Bearer Token flow with X.509 certificate
 
 ### 2. Lambda Dependencies Not Loading (`No module named 'jwt'`)
-**Solution**: Direct Lambda deployment bypassing Terraform:
+**Solution**: Now handled via shared Lambda layers (`rackspace_sf_auth`). Deploy via Terraform:
 ```bash
-cd lambda/case_processor/package && zip -rq /tmp/lambda.zip .
-cd .. && zip -j /tmp/lambda.zip handler.py bedrock_client.py salesforce_client.py __init__.py
-aws lambda update-function-code --function-name salesforceagent-api --zip-file fileb:///tmp/lambda.zip
+cd terraform && terraform apply
 ```
 
 ### 3. Event Relay Payload Parsing (Double-Nested JSON)
@@ -535,12 +547,14 @@ aws sts get-caller-identity --profile SANDBOX5JAN27
 eval $(aws configure export-credentials --profile YOUR_PROFILE --format env)
 
 # Check Lambda logs
-aws logs tail /aws/lambda/salesforceagent-api --since 5m --format short
+aws logs tail /aws/lambda/sf-case-processor --since 5m --format short
+aws logs tail /aws/lambda/sf-case-action-group --since 5m --format short
 
-# Redeploy Lambda (quick - bypasses Terraform)
-cd lambda/case_processor/package && zip -rq /tmp/lambda.zip .
-cd .. && zip -j /tmp/lambda.zip handler.py bedrock_client.py salesforce_client.py __init__.py
-aws lambda update-function-code --function-name salesforceagent-api --zip-file fileb:///tmp/lambda.zip
+# Deploy via Terraform (recommended - handles layers + action groups)
+cd terraform && terraform apply
+
+# Prepare agent after instruction/schema changes
+aws bedrock-agent prepare-agent --agent-id $AGENT_ID
 
 # Sync Knowledge Base
 aws bedrock-agent start-ingestion-job --knowledge-base-id $KB_ID --data-source-id $DATASOURCE_ID
@@ -561,13 +575,21 @@ aws sqs get-queue-attributes \
 ├── docs/
 │   ├── IMPLEMENTATION_NOTES.md  # Detailed troubleshooting
 │   ├── DEPLOYMENT_GUIDE.md      # Full deployment guide
+│   ├── SOP_FOR_DS/              # 80+ SOP docs (Bedrock KB source)
 │   └── ...
 ├── lambda/
-│   └── case_processor/
-│       ├── handler.py           # Lambda handler (SQS + API Gateway)
-│       ├── bedrock_client.py    # Bedrock Agent client
-│       ├── salesforce_client.py # SF JWT auth client
-│       └── package/             # Python dependencies
+│   ├── case_processor/          # Main orchestrator Lambda
+│   │   ├── handler.py           # SQS + API Gateway handler
+│   │   ├── bedrock_client.py    # Bedrock Agent client
+│   │   └── salesforce_client.py # SF JWT auth + case update
+│   ├── action_group/            # Case-specific action group Lambda
+│   │   ├── handler.py           # searchSimilarCases + searchKnowledgeArticles
+│   │   └── openapi_schema.json  # Action group API schema
+│   ├── shared_action_group/     # Generic SOQL action group (reusable)
+│   │   ├── handler.py           # querySalesforce endpoint
+│   │   └── openapi_schema.json  # Shared API schema
+│   └── layers/                  # Shared Lambda layers
+│       └── rackspace_sf_queries/  # SF SOQL query helpers
 ├── salesforce/
 │   └── force-app/               # SF metadata (Apex, fields, events)
 │       └── main/default/
@@ -581,8 +603,18 @@ aws sqs get-queue-attributes \
 │   ├── main.tf                  # Main config
 │   ├── api_gateway.tf           # API Gateway
 │   ├── variables.tf             # Variable definitions
-│   ├── terraform.tfvars         # Your values
-│   └── modules/                 # Modular resources
+│   ├── terraform.tfvars         # Your values (DO NOT COMMIT)
+│   └── modules/
+│       ├── bedrock_agent/       # Agent + KB association
+│       ├── lambda/              # Case processor Lambda
+│       ├── lambda_layer/        # SF auth layer
+│       ├── sf_queries_layer/    # SF queries layer
+│       ├── action_group/        # Case action group
+│       ├── shared_action_group/ # Generic SOQL action group
+│       ├── sqs/                 # SQS queue
+│       └── eventbridge/         # EventBridge rules
+├── tests/
+│   └── ground_truth.json        # Regression test dataset (5 cases)
 ├── salesforce.key               # JWT private key (DO NOT COMMIT)
 └── salesforce.crt               # JWT certificate (upload to SF)
 ```
@@ -692,16 +724,21 @@ terraform apply
 
 ## Cost Estimate (Monthly)
 
-| Component | Cost |
-|-----------|------|
-| Bedrock Agent | ~$5 |
-| Lambda | ~$3 |
-| API Gateway | ~$1 |
-| SQS | <$1 |
-| Knowledge Base | ~$2 |
-| Step Functions | <$1 |
-| AppFlow | ~$1 |
-| **Total** | **~$14** |
+| Component | Estimated | Actual (measured) |
+|-----------|-----------|-------------------|
+| CloudWatch Logs | ~$5 | $9.60 |
+| Bedrock Agent | ~$5 | $0.26 |
+| Lambda | ~$3 | <$1 |
+| Secrets Manager | ~$1 | $0.17 |
+| API Gateway | ~$1 | <$1 |
+| SQS | <$1 | <$1 |
+| S3 (KB vectors) | <$1 | $0.03 |
+| Knowledge Base | ~$2 | included in Bedrock |
+| Step Functions | <$1 | <$1 |
+| AppFlow | ~$1 | <$1 |
+| **Total** | **~$14** | **~$10** |
+
+> Actual costs measured at ~100 cases/day test load. CloudWatch is the biggest cost — consider reducing log retention.
 
 ---
 
