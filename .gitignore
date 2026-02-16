@@ -49,7 +49,11 @@ salesforce/force-app/main/default/eventRelays/
 
 # OS
 .DS_Store
+**/.DS_Store
 Thumbs.db
+
+# Python linter cache
+.ruff_cache/
 
 # Logs
 *.log
