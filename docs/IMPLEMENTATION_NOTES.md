@@ -1,5 +1,9 @@
 # Salesforce AI Case Analysis - Implementation Notes
 
+> **📖 For complete end-to-end flow documentation, see [TECHNICAL_FLOW.md](TECHNICAL_FLOW.md)**
+
+This document covers troubleshooting, issues fixed, and deployment notes.
+
 ## Architecture Overview
 
 ```

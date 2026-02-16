@@ -779,6 +779,7 @@ terraform apply
 | [Bedrock KB Salesforce Connector](docs/BEDROCK_KB_SALESFORCE_CONNECTOR.md) | Native SF connector (abandoned - use AppFlow) |
 | [README PKCE](docs/README_PKCE.md) | PKCE auth flow (not used) |
 | [Salesforce Deployment](docs/SALESFORCE_DEPLOYMENT.md) | SF metadata deployment |
+| [Technical Flow](docs/TECHNICAL_FLOW.md) | **Complete end-to-end flow documentation** |
 
 ---
 
