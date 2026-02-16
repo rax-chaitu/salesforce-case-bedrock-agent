@@ -71,9 +71,22 @@ def search_similar_cases(params):
     logger.info(json.dumps({"event": "soql_query", "query": query}))
     results = sf.query(query)
     all_records = results.get("records", [])
-    logger.info(json.dumps({"event": "similar_cases_found", "count": len(all_records)}))
 
-    logger.info(json.dumps({"event": "similar_cases_found", "count": len(all_records)}))
+    # Log each case with its child record counts
+    case_summary = []
+    for r in all_records:
+        comments_count = len((r.get("CaseComments") or {}).get("records", []))
+        emails_count = len((r.get("EmailMessages") or {}).get("records", []))
+        case_summary.append({
+            "case": r.get("CaseNumber", ""),
+            "subject": (r.get("Subject") or "")[:80],
+            "tool": r.get("Tool__c") or "",
+            "reason": r.get("Support_Reason__c") or "",
+            "comments": comments_count,
+            "emails": emails_count,
+            "closed": r.get("ClosedDate") or ""
+        })
+    logger.info(json.dumps({"event": "similar_cases_found", "count": len(all_records), "cases": case_summary}))
 
     # Batch-fetch Chatter (FeedItem doesn't support subqueries)
     chatter_map = {}
@@ -168,6 +181,8 @@ def search_knowledge_articles(params):
                 "summary": (r.get("Summary") or "")[:300],
             })
 
+    logger.info(json.dumps({"event": "kav_results", "found": len(articles),
+                            "titles": [a["title"] for a in articles]}))
     return {"articles": articles, "total_found": len(articles)}
 
 

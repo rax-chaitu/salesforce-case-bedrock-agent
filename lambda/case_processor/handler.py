@@ -225,7 +225,11 @@ def analyze_case(case_id: str, case_data: dict) -> dict:
     # Pre-compute search hints so agent doesn't waste LLM calls figuring them out
     subject = case_data.get("Subject", case_data.get("Subject__c", ""))
     support_reason = case_data.get("Support_Reason__c", "")
+    tool = case_data.get("Tool__c", case_data.get("Tool", ""))
     keywords = " ".join(w for w in subject.split()[:5] if len(w) > 2)
+
+    logger.info({"event": "analyze_start", "case_id": case_id, "subject": subject,
+                 "support_reason": support_reason, "tool": tool, "keywords": keywords})
 
     # Deterministic KA search — agent picks bad keywords, so we do it ourselves
     ka_titles = []
@@ -233,7 +237,6 @@ def analyze_case(case_id: str, case_data: dict) -> dict:
         sf = get_salesforce_client()
         if sf.is_configured():
             # Use subject + support_reason + tool for broad KA search
-            tool = case_data.get("Tool__c", "")
             search_words = set()
             for text in [subject, support_reason, tool]:
                 search_words.update(w for w in re.findall(r'\w+', text.replace("-", " ").replace("/", " ")) if len(w) > 3)
@@ -246,11 +249,9 @@ def analyze_case(case_id: str, case_data: dict) -> dict:
                 )
                 kav_results = sf.query(kav_query)
                 ka_titles = [r.get("Title", "") for r in kav_results.get("records", []) if r.get("Title")]
-                logger.info("ka_search_deterministic", count=len(ka_titles), titles=ka_titles)
+                logger.info({"event": "ka_search_deterministic", "count": len(ka_titles), "titles": ka_titles})
     except Exception as e:
         logger.warning("ka_search_failed", error=str(e))
-
-    tool = case_data.get("Tool__c", case_data.get("Tool", ""))
 
     prompt = f"""Analyze this Salesforce case. Use these search parameters:
 - searchSimilarCases: keywords="{keywords}", support_reason="{support_reason}", tool="{tool}"
@@ -277,7 +278,9 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
 
     response_text = bedrock.invoke_agent(prompt, session_id)
 
-    logger.info({"event": "agent_raw_response", "case_id": case_id, "response_length": len(response_text), "response_preview": response_text[:2000]})
+    logger.info({"event": "agent_raw_response", "case_id": case_id,
+                 "response_length": len(response_text), "response_preview": response_text[:2000]})
+    # Detect guardrail-blocked responses (input or output)
     guardrail_phrases = [
         "I cannot provide that information",  # blocked output
         "I can only help with Salesforce case analysis",  # blocked input
@@ -328,6 +331,15 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
 
     # Post-process: merge deterministic KA titles with agent's kb_articles
     agent_articles = analysis.get("kb_articles", [])
+
+    logger.info({"event": "agent_parsed", "case_id": case_id,
+                 "fields": list(analysis.keys()),
+                 "similar_cases_count": len(analysis.get("similar_cases", [])),
+                 "similar_cases": analysis.get("similar_cases", []),
+                 "agent_kb_articles": agent_articles,
+                 "admin_steps_count": len(analysis.get("admin_steps", [])),
+                 "user_steps_count": len(analysis.get("user_steps", [])),
+                 "self_resolvable": analysis.get("self_resolvable")})
     # Combine: deterministic KA titles + agent's articles, dedupe (case-insensitive)
     seen_lower = set()
     all_articles = []
@@ -361,6 +373,18 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
     admin_steps = analysis.get("admin_steps", [])
     user_steps = analysis.get("user_steps", [])
     existing_steps = analysis.get("steps", [])
+
+    # Strip user_steps that are just "create/submit a case" — circular advice
+    if user_steps:
+        case_submission_phrases = ["create a new case", "submit the case", "create a case",
+                                   "open a case", "save and submit", "submit a case"]
+        filtered = [s for s in user_steps if not any(
+            p in str(s).lower() for p in case_submission_phrases)]
+        if len(filtered) < len(user_steps):
+            logger.info({"event": "user_steps_filtered", "case_id": case_id,
+                         "original": len(user_steps), "kept": len(filtered)})
+            user_steps = filtered
+
     if admin_steps or user_steps:
         merged = []
         if admin_steps:
@@ -371,13 +395,7 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
             merged.extend(str(s) for s in user_steps)
         analysis["steps"] = merged
         if user_steps:
-            # Don't auto-set self_resolvable if user_steps are just "submit a case"
-            user_steps_text = " ".join(str(s).lower() for s in user_steps)
-            is_just_case_submission = any(p in user_steps_text for p in [
-                "create a new case", "submit the case", "create a case", "open a case"
-            ])
-            if not is_just_case_submission:
-                analysis["self_resolvable"] = True
+            analysis["self_resolvable"] = True
     elif existing_steps:
         # Agent didn't use separate fields — check if user steps are missing
         steps_text = " ".join(str(s) for s in existing_steps).lower()
@@ -390,6 +408,16 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
 
     analysis["analyzed_date"] = datetime.utcnow().isoformat()
     analysis["_real_ka_titles"] = [t.lower() for t in ka_titles]  # for hyperlink check
+
+    logger.info({"event": "analyze_complete", "case_id": case_id,
+                 "final_kb_articles": analysis.get("kb_articles", []),
+                 "final_similar_cases": analysis.get("similar_cases", []),
+                 "final_steps_count": len(analysis.get("steps", [])),
+                 "self_resolvable": analysis.get("self_resolvable"),
+                 "has_summary": bool(analysis.get("summary")),
+                 "has_category": bool(analysis.get("category")),
+                 "has_severity": bool(analysis.get("severity"))})
+
     return analysis
 
 
