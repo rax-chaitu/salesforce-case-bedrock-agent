@@ -218,7 +218,37 @@ def handle_sqs_event(event: dict) -> dict:
 def analyze_case(case_id: str, case_data: dict) -> dict:
     """
     Invoke Bedrock Agent to analyze case and return structured response.
-    Sends full case payload as JSON — agent interprets field names directly.
+    
+    Flow:
+    1. Extract case fields (subject, support_reason, tool)
+    2. Deterministic KA search (SOQL) - bypasses agent's poor keyword selection
+    3. Build prompt with search parameters
+    4. Invoke Bedrock Agent (automatic vector search + action group calls)
+    5. Parse agent JSON response
+    6. Score & merge KB articles (deterministic + agent results)
+    7. Filter user_steps (remove "create a case" circular advice)
+    8. Return structured analysis
+    
+    Example Input:
+        case_id = "500Ox00000gSFGrIAO"
+        case_data = {
+            "Subject__c": "Add me as Client Partner on opportunity",
+            "Support_Reason__c": "Opportunity - Add/Change Team Member or Split",
+            "Tool__c": "Salesforce",
+            "Description__c": "Please add me to opportunity 4586936..."
+        }
+    
+    Example Output:
+        {
+            "summary": "Request to add user as Client Partner...",
+            "category": "Opportunity",
+            "severity": "Medium",
+            "admin_steps": ["Navigate to Opportunity...", "Click Add Team Member..."],
+            "user_steps": ["Navigate to Opportunity...", "Click Team Member Request..."],
+            "similar_cases": ["00144900", "00144588", "00144692"],
+            "kb_articles": ["Submit an Opportunity Team Member Request"],
+            "self_resolvable": true
+        }
     """
     bedrock = get_bedrock_client()
 
@@ -231,12 +261,23 @@ def analyze_case(case_id: str, case_data: dict) -> dict:
     logger.info({"event": "analyze_start", "case_id": case_id, "subject": subject,
                  "support_reason": support_reason, "tool": tool, "keywords": keywords})
 
-    # Deterministic KA search — agent picks bad keywords, so we do it ourselves
+    # ============================================================================
+    # DETERMINISTIC KA SEARCH
+    # ============================================================================
+    # Why: Nova Pro picks bad keywords (e.g., "the", "and", "for")
+    # Solution: Do SOQL search ourselves using subject + support_reason + tool words
+    # 
+    # Example:
+    #   Input: subject="Add Client Partner", support_reason="Opportunity - Add/Change Team Member"
+    #   Extracts: ["Add", "Client", "Partner", "Opportunity", "Change", "Team", "Member"]
+    #   SOQL: Title LIKE '%Add%' OR Title LIKE '%Client%' OR Title LIKE '%Partner%' ...
+    #   Result: ["Submit an Opportunity Team Member Request", "Moving An Opportunity To A New Account"]
+    # ============================================================================
     ka_titles = []
     try:
         sf = get_salesforce_client()
         if sf.is_configured():
-            # Use subject + support_reason + tool for broad KA search
+            # Extract words > 3 chars from subject + support_reason + tool
             search_words = set()
             for text in [subject, support_reason, tool]:
                 search_words.update(w for w in re.findall(r'\w+', text.replace("-", " ").replace("/", " ")) if len(w) > 3)
@@ -340,13 +381,34 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
                  "admin_steps_count": len(analysis.get("admin_steps", [])),
                  "user_steps_count": len(analysis.get("user_steps", [])),
                  "self_resolvable": analysis.get("self_resolvable")})
-    # Combine: deterministic KA titles + agent's articles, dedupe (case-insensitive)
+    
+    # ============================================================================
+    # KB ARTICLE SCORING & DEDUPLICATION
+    # ============================================================================
+    # Why: Agent returns irrelevant KAs (e.g., "Create a Salesforce Case" for every request)
+    # Solution: Merge deterministic + agent KAs, score by keyword overlap, keep only relevant
+    #
+    # Example:
+    #   Deterministic KAs: ["Submit an Opportunity Team Member Request", "Moving An Opportunity"]
+    #   Agent KAs: ["submit an opportunity team member request", "Create a Salesforce Case"]
+    #   After dedupe: ["Submit an Opportunity Team Member Request", "Moving An Opportunity", "Create a Salesforce Case"]
+    #   
+    #   Case words: {add, client, partner, opportunity, team, member, acme, corp}
+    #   
+    #   Scoring:
+    #     "Submit an Opportunity Team Member Request" → {submit, opportunity, team, member, request} → overlap=3 → score=3 ✅
+    #     "Moving An Opportunity" → {moving, opportunity} → overlap=1 → score=1
+    #     "Create a Salesforce Case" → {create, salesforce, case} → overlap=0 → score=0 ❌
+    #   
+    #   Result: ["Submit an Opportunity Team Member Request"] (score ≥ 2)
+    # ============================================================================
     seen_lower = set()
     all_articles = []
     for t in list(ka_titles) + [a if isinstance(a, str) else str(a) for a in agent_articles]:
         if t.lower() not in seen_lower:
             seen_lower.add(t.lower())
             all_articles.append(t)
+    
     # Score by subject + description keyword overlap
     if all_articles:
         desc_text = case_data.get("Description", case_data.get("Description__c", ""))
@@ -355,21 +417,36 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
         scored = []
         for article in all_articles:
             title_words = {w.lower() for w in re.findall(r'\w+', article) if len(w) >= 3}
-            score = len(case_words & title_words)
+            score = len(case_words & title_words)  # Count overlapping words
             if score >= 2:
                 scored.append((score, article))
         if scored:
             scored.sort(key=lambda x: x[0], reverse=True)
             analysis["kb_articles"] = [a for _, a in scored[:5]]
         elif all_articles:
-            # Nothing scored 2+, keep top 3 with 1+ match
+            # Nothing scored 2+, keep top 3 with 1+ match (fallback)
             fallback = [(len(case_words & {w.lower() for w in re.findall(r'\w+', a) if len(w) >= 3}), a)
                         for a in all_articles]
             fallback = [(s, a) for s, a in fallback if s >= 1]
             fallback.sort(key=lambda x: x[0], reverse=True)
             analysis["kb_articles"] = [a for _, a in fallback[:3]]
 
-    # Post-process: merge admin_steps + user_steps into single steps field for SF
+    # ============================================================================
+    # USER_STEPS FILTERING
+    # ============================================================================
+    # Why: Agent suggests "create a case" as self-service step — but case already exists!
+    # Solution: Strip any step mentioning case creation/submission (circular advice)
+    #
+    # Example:
+    #   Original user_steps:
+    #     1. Navigate to the Opportunity record
+    #     2. Click Team Member Request
+    #     3. Submit the case  ← REMOVE (circular)
+    #   
+    #   Filtered user_steps:
+    #     1. Navigate to the Opportunity record
+    #     2. Click Team Member Request
+    # ============================================================================
     admin_steps = analysis.get("admin_steps", [])
     user_steps = analysis.get("user_steps", [])
     existing_steps = analysis.get("steps", [])

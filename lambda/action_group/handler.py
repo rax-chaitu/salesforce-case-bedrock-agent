@@ -27,7 +27,60 @@ def get_sf():
 
 
 def search_similar_cases(params):
-    """Search SF for similar closed cases by keywords and/or support reason."""
+    """
+    Search Salesforce for similar closed cases with content-prioritized ranking.
+    
+    Flow:
+    1. Build SOQL WHERE clause (Support_Reason__c AND Tool__c AND keywords AND Status=Closed)
+    2. Fetch 3x requested cases (to find content-rich ones)
+    3. Fetch subqueries: CaseComments, EmailMessages
+    4. Batch-fetch Chatter FeedItems (can't use subquery)
+    5. Score cases by content richness (comments*3 + emails*2 + closure_notes + resolution)
+    6. Sort by score descending, return top N
+    
+    Why fetch 3x?
+    - Recent cases (2025+) have no emails/comments
+    - Older cases (2024) have rich email conversations
+    - Fetching 30 and ranking ensures we get content-rich cases
+    
+    Example Input:
+        {
+            "keywords": "Add Client Partner",
+            "support_reason": "Opportunity - Add/Change Team Member or Split",
+            "case_tool": "Salesforce",
+            "max_results": 10
+        }
+    
+    Example SOQL:
+        SELECT Id, CaseNumber, Subject, ..., 
+               (SELECT CommentBody FROM CaseComments LIMIT 3),
+               (SELECT Subject, TextBody FROM EmailMessages LIMIT 3)
+        FROM Case
+        WHERE Status = 'Closed'
+          AND Support_Reason__c = 'Opportunity - Add/Change Team Member or Split'
+          AND (Subject LIKE '%Add%' OR Subject LIKE '%Client%' OR Subject LIKE '%Partner%')
+          AND Tool__c = 'Salesforce'
+          AND ClosedDate != null
+        ORDER BY ClosedDate DESC
+        LIMIT 30
+    
+    Example Output:
+        {
+            "cases": [
+                {
+                    "case_number": "00144236",
+                    "subject": "Please add name in OPPURTUNITY TEAM...",
+                    "tool": "Salesforce",
+                    "support_reason": "Opportunity - Add/Change Team Member or Split",
+                    "comments": "Comment 1 | Comment 2",
+                    "emails": "Subject: Re: ... Body: ...",
+                    "chatter": "Chatter post 1 | Chatter post 2",
+                    "closed_date": "2025-05-09T09:33:55.000+0000"
+                }
+            ],
+            "total_found": 10
+        }
+    """
     keywords = params.get("keywords", "")
     support_reason = params.get("support_reason", "")
     tool = params.get("case_tool", "")
@@ -38,7 +91,7 @@ def search_similar_cases(params):
     sf = get_sf()
     conditions = ["Status IN ('Closed', 'Closed Resolved')"]
 
-    # Require support_reason match (primary filter) + keyword match (relevance)
+    # Build WHERE clause: Support_Reason__c AND keywords AND Tool__c
     keyword_conditions = []
     for word in [w for w in keywords.split()[:5] if len(w) > 2]:
         safe = word.replace("'", "\\'")
@@ -63,7 +116,13 @@ def search_similar_cases(params):
     conditions.append("ClosedDate != null")
 
     where = " AND ".join(conditions)
-    # Fetch 3x more cases to find ones with content
+    
+    # ============================================================================
+    # FETCH 3X CASES FOR CONTENT-PRIORITIZED RANKING
+    # ============================================================================
+    # Why: Recent cases have no emails/comments. Fetching 30 and ranking by content
+    #      ensures we return cases with actual resolution details.
+    # ============================================================================
     fetch_limit = max_results * 3
     query = (
         f"SELECT Id, CaseNumber, Subject, Support_Reason__c, Description, "
@@ -80,7 +139,22 @@ def search_similar_cases(params):
     results = sf.query(query)
     all_records = results.get("records", [])
     
-    # Rank by content richness: prioritize cases with emails/comments
+    # ============================================================================
+    # CONTENT-PRIORITIZED RANKING
+    # ============================================================================
+    # Why: Recent cases (2025+) have no emails/comments. Sorting by ClosedDate DESC
+    #      returns empty cases. We need cases with actual resolution details.
+    #
+    # Scoring Formula:
+    #   score = (comments * 3) + (emails * 2) + has_closure_notes + has_resolution
+    #
+    # Example:
+    #   Case A (2025): 0 comments, 0 emails, no closure notes → score = 0
+    #   Case B (2024): 0 comments, 3 emails, has closure notes → score = 0 + 6 + 1 = 7 ✅
+    #   Case C (2024): 2 comments, 1 email, has closure notes → score = 6 + 2 + 1 = 9 ✅
+    #
+    # Result: Cases B and C ranked higher than A, even though A is more recent
+    # ============================================================================
     def content_score(r):
         comments = len((r.get("CaseComments") or {}).get("records", []))
         emails = len((r.get("EmailMessages") or {}).get("records", []))
@@ -107,7 +181,22 @@ def search_similar_cases(params):
         })
     logger.info(json.dumps({"event": "similar_cases_found", "count": len(all_records), "cases": case_summary}))
 
-    # Batch-fetch Chatter (FeedItem doesn't support subqueries)
+    # ============================================================================
+    # BATCH-FETCH CHATTER FEEDITEMS
+    # ============================================================================
+    # Why: FeedItem doesn't support subqueries in SOQL
+    # Solution: Fetch separately using ParentId IN (...) after getting case IDs
+    #
+    # Example:
+    #   Case IDs: ['500Pe00000WvzKTIAZ', '500Pe00000WMDXGIA5']
+    #   SOQL: SELECT ParentId, Body FROM FeedItem 
+    #         WHERE ParentId IN ('500Pe00000WvzKTIAZ', '500Pe00000WMDXGIA5')
+    #         AND Type = 'TextPost'
+    #   Result: {
+    #       '500Pe00000WvzKTIAZ': ['Chatter post 1', 'Chatter post 2'],
+    #       '500Pe00000WMDXGIA5': ['Chatter post 3']
+    #   }
+    # ============================================================================
     chatter_map = {}
     case_ids = [r.get("Id", "") for r in all_records if r.get("Id")]
     if case_ids:

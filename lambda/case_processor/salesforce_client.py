@@ -115,6 +115,24 @@ class SalesforceClient:
                     parts.append(f"<b>{k.replace('_', ' ').title()}</b><br/>{v}")
         if analysis.get("escalation_needed") and analysis.get("escalation_reason"):
             parts.append(f"<b>Escalation Required</b><br/>{analysis['escalation_reason']}")
+        
+        # ========================================================================
+        # KB SOURCES HYPERLINK LOGIC
+        # ========================================================================
+        # Why: SOP docs from Bedrock KB don't have Salesforce URLs
+        # Solution: Only hyperlink REAL Salesforce Knowledge Articles
+        #
+        # Example:
+        #   kb_articles: [
+        #       "Submit an Opportunity Team Member Request",  ← Real SF KA
+        #       "SOP: Opportunity Team Changes Process"       ← SOP doc from S3
+        #   ]
+        #   _real_ka_titles: ["Submit an Opportunity Team Member Request"]
+        #
+        #   Result:
+        #     <li><a href="https://rax--inttest.../articles/Knowledge/Submit-an-Opportunity-Team-Member-Request">Submit an Opportunity Team Member Request</a></li>
+        #     <li>SOP: Opportunity Team Changes Process</li>
+        # ========================================================================
         if analysis.get("kb_articles"):
             articles = analysis["kb_articles"]
             if isinstance(articles, list) and articles:
@@ -123,17 +141,47 @@ class SalesforceClient:
                 real_ka = set(analysis.get("_real_ka_titles", []))
                 items = []
                 for a in articles:
+                    # Only hyperlink if it's a real SF KA (case-insensitive match)
                     if base and isinstance(a, str) and a.lower() in real_ka:
                         url_name = a.replace(" ", "-")
                         items.append(f'<li><a href="{base}/articles/Knowledge/{url_name}" target="_blank">{a}</a></li>')
                     else:
+                        # SOP doc - plain text
                         items.append(f"<li>{a}</li>")
                 parts.append(f"<b>KB Sources</b><ul>{''.join(items)}</ul>")
         parts.append("<i>[AI-Generated Analysis - Please verify before taking action]</i>")
         return "<br/><br/>".join(parts) if parts else json.dumps(analysis, indent=2)
 
     def _format_steps(self, steps: list[str]) -> str:
-        """Format steps as HTML with section headers for Rich Text field."""
+        """
+        Format steps as HTML with section headers for Rich Text field.
+        
+        Detects section headers (lines ending with "STEPS:") and creates:
+        - Bold section headers: <b>ADMIN STEPS:</b>
+        - Numbered lists per section: <ol><li>Step 1</li><li>Step 2</li></ol>
+        
+        Example Input:
+            [
+                "ADMIN STEPS:",
+                "1. Navigate to the Opportunity record",
+                "2. Click Add Team Member",
+                "USER SELF-SERVICE STEPS:",
+                "1. Navigate to the Opportunity",
+                "2. Click Team Member Request"
+            ]
+        
+        Example Output:
+            <br><b>ADMIN STEPS:</b>
+            <ol>
+                <li>Navigate to the Opportunity record</li>
+                <li>Click Add Team Member</li>
+            </ol>
+            <br><b>USER SELF-SERVICE STEPS:</b>
+            <ol>
+                <li>Navigate to the Opportunity</li>
+                <li>Click Team Member Request</li>
+            </ol>
+        """
         if not steps:
             return ""
         html_parts = []
@@ -147,6 +195,7 @@ class SalesforceClient:
                     current_items = []
                 html_parts.append(f"<br/><b>{s}</b>")
             else:
+                # Remove leading numbers (1., 2., etc.) - <ol> adds them automatically
                 current_items.append(re.sub(r'^\d+\.\s*', '', s))
         if current_items:
             html_parts.append("<ol>" + "".join(f"<li>{i}</li>" for i in current_items) + "</ol>")
