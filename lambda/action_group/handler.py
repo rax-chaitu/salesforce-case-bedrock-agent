@@ -30,8 +30,10 @@ def search_similar_cases(params):
     """Search SF for similar closed cases by keywords and/or support reason."""
     keywords = params.get("keywords", "")
     support_reason = params.get("support_reason", "")
-    tool = params.get("tool", "")
+    tool = params.get("case_tool", "")
     max_results = min(int(params.get("max_results", 10)), 50)
+    
+    logger.info(json.dumps({"event": "search_params", "keywords": keywords, "support_reason": support_reason, "case_tool": tool, "max_results": max_results}))
 
     sf = get_sf()
     conditions = ["Status IN ('Closed', 'Closed Resolved')"]

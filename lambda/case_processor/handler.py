@@ -254,7 +254,7 @@ def analyze_case(case_id: str, case_data: dict) -> dict:
         logger.warning("ka_search_failed", error=str(e))
 
     prompt = f"""Analyze this Salesforce case. Use these search parameters:
-- searchSimilarCases: keywords="{keywords}", support_reason="{support_reason}", tool="{tool}"
+- searchSimilarCases: keywords="{keywords}", support_reason="{support_reason}", case_tool="{tool}"
 - searchKnowledgeArticles: keywords="{keywords}"
 
 Case data:

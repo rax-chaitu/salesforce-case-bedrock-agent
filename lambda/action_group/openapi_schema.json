@@ -17,7 +17,7 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["keywords"],
+                "required": ["keywords", "case_tool"],
                 "properties": {
                   "keywords": {
                     "type": "string",
@@ -27,9 +27,9 @@
                     "type": "string",
                     "description": "Optional Support_Reason__c value to filter by (e.g., 'Configuration', 'Implementation', 'User Access')."
                   },
-                  "tool": {
+                  "case_tool": {
                     "type": "string",
-                    "description": "Optional Tool__c value from the case to filter by (e.g., 'Revegy', 'QM', 'Salesforce', 'Sales Navigator'). When provided, only returns cases with the same tool."
+                    "description": "REQUIRED Tool__c value from the case (e.g., 'Revegy', 'QM', 'Salesforce', 'Sales Navigator'). Always pass the tool value from the case being analyzed to find similar cases for the same tool."
                   },
                   "max_results": {
                     "type": "integer",
