@@ -55,8 +55,14 @@ def search_similar_cases(params):
     if tool:
         safe_tool = tool.replace("'", "\\'")
         conditions.append(f"Tool__c = '{safe_tool}'")
+    
+    # Only closed cases with documented closure
+    conditions.append("Status = 'Closed'")
+    conditions.append("ClosedDate != null")
 
     where = " AND ".join(conditions)
+    # Fetch 3x more cases to find ones with content
+    fetch_limit = max_results * 3
     query = (
         f"SELECT Id, CaseNumber, Subject, Support_Reason__c, Description, "
         f"Case_Closure_Notes__c, ClosedDate, Close_Codes__c, Close_Reason__c, "
@@ -65,12 +71,23 @@ def search_similar_cases(params):
         f"(SELECT CommentBody FROM CaseComments ORDER BY CreatedDate DESC LIMIT 3), "
         f"(SELECT Subject, TextBody FROM EmailMessages ORDER BY CreatedDate DESC LIMIT 3) "
         f"FROM Case WHERE {where} "
-        f"ORDER BY ClosedDate DESC NULLS LAST LIMIT {max_results}"
+        f"ORDER BY ClosedDate DESC NULLS LAST LIMIT {fetch_limit}"
     )
 
     logger.info(json.dumps({"event": "soql_query", "query": query}))
     results = sf.query(query)
     all_records = results.get("records", [])
+    
+    # Rank by content richness: prioritize cases with emails/comments
+    def content_score(r):
+        comments = len((r.get("CaseComments") or {}).get("records", []))
+        emails = len((r.get("EmailMessages") or {}).get("records", []))
+        has_closure = 1 if r.get("Case_Closure_Notes__c") else 0
+        has_resolution = 1 if r.get("DP_Resolution__c") else 0
+        return (comments * 3) + (emails * 2) + has_closure + has_resolution
+    
+    all_records.sort(key=content_score, reverse=True)
+    all_records = all_records[:max_results]  # Take top N after ranking
 
     # Log each case with its child record counts
     case_summary = []
