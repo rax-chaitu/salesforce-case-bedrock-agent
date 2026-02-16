@@ -20,7 +20,7 @@ import os
 import re
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from bedrock_client import BedrockAgentClient
 from salesforce_client import SalesforceClient
@@ -71,8 +71,8 @@ class StructuredLogger:
 logger = StructuredLogger(__name__)
 
 # Lazy initialization for clients (reduces cold start impact)
-_bedrock: Optional[BedrockAgentClient] = None
-_salesforce: Optional[SalesforceClient] = None
+_bedrock: BedrockAgentClient | None = None
+_salesforce: SalesforceClient | None = None
 
 
 def get_bedrock_client() -> BedrockAgentClient:
@@ -274,6 +274,7 @@ def analyze_case(case_id: str, case_data: dict) -> dict:
     #   Result: ["Submit an Opportunity Team Member Request", "Moving An Opportunity To A New Account"]
     # ============================================================================
     ka_titles = []
+    ka_url_map = {}
     try:
         sf = get_salesforce_client()
         if sf.is_configured():
@@ -284,12 +285,13 @@ def analyze_case(case_id: str, case_data: dict) -> dict:
             like_clauses = [f"Title LIKE '%{w}%'" for w in list(search_words)[:8]]
             if like_clauses:
                 kav_query = (
-                    f"SELECT Title FROM KnowledgeArticleVersion "
+                    f"SELECT Title, UrlName FROM KnowledgeArticleVersion "
                     f"WHERE PublishStatus = 'Online' AND Language = 'en_US' "
                     f"AND ({' OR '.join(like_clauses)}) LIMIT 10"
                 )
                 kav_results = sf.query(kav_query)
                 ka_titles = [r.get("Title", "") for r in kav_results.get("records", []) if r.get("Title")]
+                ka_url_map = {r["Title"].lower(): r["UrlName"] for r in kav_results.get("records", []) if r.get("Title") and r.get("UrlName")}
                 logger.info({"event": "ka_search_deterministic", "count": len(ka_titles), "titles": ka_titles})
     except Exception as e:
         logger.warning("ka_search_failed", error=str(e))
@@ -326,7 +328,8 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
         "I cannot provide that information",  # blocked output
         "I can only help with Salesforce case analysis",  # blocked input
     ]
-    if any(phrase.lower() in response_text.lower() for phrase in guardrail_phrases):
+    response_lower = response_text.lower()
+    if any(phrase.lower() in response_lower for phrase in guardrail_phrases):
         logger.warning(f"Guardrail blocked agent output for case {case_id}", response_preview=response_text[:300])
         return {
             "summary": (
@@ -414,20 +417,15 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
         desc_text = case_data.get("Description", case_data.get("Description__c", ""))
         combined = f"{subject} {desc_text} {support_reason}"
         case_words = {w.lower() for w in re.findall(r'\w+', combined) if len(w) >= 3}
-        scored = []
-        for article in all_articles:
-            title_words = {w.lower() for w in re.findall(r'\w+', article) if len(w) >= 3}
-            score = len(case_words & title_words)  # Count overlapping words
-            if score >= 2:
-                scored.append((score, article))
-        if scored:
-            scored.sort(key=lambda x: x[0], reverse=True)
-            analysis["kb_articles"] = [a for _, a in scored[:5]]
-        elif all_articles:
-            # Nothing scored 2+, keep top 3 with 1+ match (fallback)
-            fallback = [(len(case_words & {w.lower() for w in re.findall(r'\w+', a) if len(w) >= 3}), a)
-                        for a in all_articles]
-            fallback = [(s, a) for s, a in fallback if s >= 1]
+        # Pre-compute title words once per article
+        article_words = {a: {w.lower() for w in re.findall(r'\w+', a) if len(w) >= 3} for a in all_articles}
+        scored = [(len(case_words & article_words[a]), a) for a in all_articles]
+        high = [(s, a) for s, a in scored if s >= 2]
+        if high:
+            high.sort(key=lambda x: x[0], reverse=True)
+            analysis["kb_articles"] = [a for _, a in high[:5]]
+        else:
+            fallback = [(s, a) for s, a in scored if s >= 1]
             fallback.sort(key=lambda x: x[0], reverse=True)
             analysis["kb_articles"] = [a for _, a in fallback[:3]]
 
@@ -484,7 +482,8 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
             )
 
     analysis["analyzed_date"] = datetime.utcnow().isoformat()
-    analysis["_real_ka_titles"] = [t.lower() for t in ka_titles]  # for hyperlink check
+    analysis["_real_ka_titles"] = [t.lower() for t in ka_titles]  # for hyperlink check (lowercased)
+    analysis["_ka_url_map"] = ka_url_map  # {title_lower: urlname} for hyperlinks
 
     logger.info({"event": "analyze_complete", "case_id": case_id,
                  "final_kb_articles": analysis.get("kb_articles", []),

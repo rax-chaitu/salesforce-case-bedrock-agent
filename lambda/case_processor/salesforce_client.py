@@ -5,12 +5,11 @@ Auth comes from shared Lambda Layer: rackspace_sf_auth
 This file contains ONLY case processing logic (updates, formatting, dedup).
 """
 
-import contextlib
 import json
 import re
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from rackspace_sf_auth import SalesforceAuthClient
 from simple_salesforce import Salesforce
@@ -26,7 +25,7 @@ class SalesforceClient:
 
     def __init__(self) -> None:
         self._auth = SalesforceAuthClient()
-        self._sf: Optional[Salesforce] = None
+        self._sf: Salesforce | None = None
 
     def is_configured(self) -> bool:
         return self._auth.is_configured()
@@ -34,7 +33,7 @@ class SalesforceClient:
     def check_connection(self) -> dict[str, Any]:
         return self._auth.check_connection()
 
-    def _get_connection(self) -> Optional[Salesforce]:
+    def _get_connection(self) -> Salesforce | None:
         if not self._sf:
             self._sf = self._auth.get_connection()
         return self._sf
@@ -87,11 +86,13 @@ class SalesforceClient:
             return True
         except Exception as e:
             logger.error(f"Failed to update Case {case_id}: {e}")
-            with contextlib.suppress(Exception):
+            try:
                 sf.Case.update(case_id, {
                     "AI_Analysis_Status__c": "Failed",
                     "AI_Analysis__c": f"Analysis failed: {e!s}",
                 })
+            except Exception:
+                logger.warning(f"Failed to set error status on Case {case_id}")
             return False
 
     def _format_analysis(self, analysis: dict[str, Any]) -> str:
@@ -120,14 +121,15 @@ class SalesforceClient:
         # KB SOURCES HYPERLINK LOGIC
         # ========================================================================
         # Why: SOP docs from Bedrock KB don't have Salesforce URLs
-        # Solution: Only hyperlink REAL Salesforce Knowledge Articles
+        # Solution: Only hyperlink REAL Salesforce Knowledge Articles using actual UrlName
         #
         # Example:
         #   kb_articles: [
         #       "Submit an Opportunity Team Member Request",  ← Real SF KA
         #       "SOP: Opportunity Team Changes Process"       ← SOP doc from S3
         #   ]
-        #   _real_ka_titles: ["Submit an Opportunity Team Member Request"]
+        #   _real_ka_titles: ["submit an opportunity team member request"]
+        #   _ka_url_map: {"submit an opportunity team member request": "Submit-an-Opportunity-Team-Member-Request"}
         #
         #   Result:
         #     <li><a href="https://rax--inttest.../articles/Knowledge/Submit-an-Opportunity-Team-Member-Request">Submit an Opportunity Team Member Request</a></li>
@@ -139,12 +141,18 @@ class SalesforceClient:
                 sf = self._get_connection()
                 base = f"https://{sf.sf_instance}" if sf else ""
                 real_ka = set(analysis.get("_real_ka_titles", []))
+                url_map = analysis.get("_ka_url_map", {})
+                
                 items = []
                 for a in articles:
                     # Only hyperlink if it's a real SF KA (case-insensitive match)
                     if base and isinstance(a, str) and a.lower() in real_ka:
-                        url_name = a.replace(" ", "-")
-                        items.append(f'<li><a href="{base}/articles/Knowledge/{url_name}" target="_blank">{a}</a></li>')
+                        url_name = url_map.get(a.lower())
+                        if url_name:
+                            items.append(f'<li><a href="{base}/articles/Knowledge/{url_name}" target="_blank">{a}</a></li>')
+                        else:
+                            # Fallback to plain text if UrlName not found
+                            items.append(f"<li>{a}</li>")
                     else:
                         # SOP doc - plain text
                         items.append(f"<li>{a}</li>")
@@ -235,7 +243,8 @@ class SalesforceClient:
                 r["CaseNumber"]: {"id": r["Id"], "subject": r.get("Subject", "")}
                 for r in result.get("records", [])
             }
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Similar cases lookup failed: {e}")
             case_map = {}
 
         formatted = []

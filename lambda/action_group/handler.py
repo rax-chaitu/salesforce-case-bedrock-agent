@@ -89,7 +89,7 @@ def search_similar_cases(params):
     logger.info(json.dumps({"event": "search_params", "keywords": keywords, "support_reason": support_reason, "case_tool": tool, "max_results": max_results}))
 
     sf = get_sf()
-    conditions = ["Status IN ('Closed', 'Closed Resolved')"]
+    conditions = ["Status IN ('Closed', 'Closed Resolved')", "ClosedDate != null"]
 
     # Build WHERE clause: Support_Reason__c AND keywords AND Tool__c
     keyword_conditions = []
@@ -110,10 +110,6 @@ def search_similar_cases(params):
     if tool:
         safe_tool = tool.replace("'", "\\'")
         conditions.append(f"Tool__c = '{safe_tool}'")
-    
-    # Only closed cases with documented closure
-    conditions.append("Status = 'Closed'")
-    conditions.append("ClosedDate != null")
 
     where = " AND ".join(conditions)
     
@@ -207,12 +203,12 @@ def search_similar_cases(params):
                 f"WHERE ParentId IN ('{id_list}') AND Type = 'TextPost' "
                 f"ORDER BY CreatedDate DESC"
             )
-            for f in fr.get("records", []):
-                pid = f.get("ParentId", "")
-                if f.get("Body"):
-                    chatter_map.setdefault(pid, []).append(f["Body"][:200])
-        except Exception:
-            pass
+            for item in fr.get("records", []):
+                pid = item.get("ParentId", "")
+                if item.get("Body"):
+                    chatter_map.setdefault(pid, []).append(item["Body"][:200])
+        except Exception as e:
+            logger.warning(f"Chatter fetch failed: {e}")
 
     cases = []
     for r in all_records:
