@@ -37,6 +37,7 @@ salesforce.key
 .sfdx/
 salesforce/.sfdx/
 salesforce/.sf/
+.sf/
 salesforce/force-app/main/default/namedCredentials/
 salesforce/force-app/main/default/eventRelays/
 
@@ -64,6 +65,7 @@ lambda/layers/*/python/
 
 # Terraform plan files
 *.tfplan
+terraform/*.plan
 tfplan
 
 # Terraform state backups
