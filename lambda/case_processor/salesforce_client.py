@@ -8,7 +8,7 @@ This file contains ONLY case processing logic (updates, formatting, dedup).
 import json
 import re
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from rackspace_sf_auth import SalesforceAuthClient
@@ -51,7 +51,7 @@ class SalesforceClient:
         if sf is None or not case_id:
             return False
         try:
-            today = datetime.utcnow().strftime("%Y-%m-%d")
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             result = sf.query(
                 f"SELECT AI_Analysis_Status__c, AI_Analyzed_Date__c "
                 f"FROM Case WHERE Id = '{case_id}'"
@@ -75,10 +75,13 @@ class SalesforceClient:
         try:
             update_data = {
                 "AI_Analysis__c": self._format_analysis(analysis),
-                "AI_Suggestions__c": self._format_steps(analysis.get("steps", [])),
+                "AI_Suggestions__c": self._format_steps(
+                    analysis.get("steps", []),
+                    analysis.get("self_resolvable", False),
+                ),
                 "Self_Resolvable__c": analysis.get("self_resolvable", False),
                 "Similar_Cases__c": self._format_similar_cases(analysis.get("similar_cases", [])),
-                "AI_Analyzed_Date__c": datetime.utcnow().isoformat(),
+                "AI_Analyzed_Date__c": datetime.now(timezone.utc).isoformat(),
                 "AI_Analysis_Status__c": "Completed",
             }
             sf.Case.update(case_id, update_data)
@@ -160,7 +163,7 @@ class SalesforceClient:
         parts.append("<i>[AI-Generated Analysis - Please verify before taking action]</i>")
         return "<br/><br/>".join(parts) if parts else json.dumps(analysis, indent=2)
 
-    def _format_steps(self, steps: list[str]) -> str:
+    def _format_steps(self, steps: list[str], self_resolvable: bool = False) -> str:
         """
         Format steps as HTML with section headers for Rich Text field.
         
@@ -192,21 +195,47 @@ class SalesforceClient:
         """
         if not steps:
             return ""
-        html_parts = []
-        current_items = []
+
+        admin_items: list[str] = []
+        user_items: list[str] = []
+        active_section = "admin"
+
         for step in steps:
             s = step.strip()
-            # Section headers (ADMIN STEPS:, USER SELF-SERVICE STEPS:)
-            if s.endswith("STEPS:") or s.endswith("STEPS"):
-                if current_items:
-                    html_parts.append("<ol>" + "".join(f"<li>{i}</li>" for i in current_items) + "</ol>")
-                    current_items = []
-                html_parts.append(f"<br/><b>{s}</b>")
+            if not s:
+                continue
+            up = s.upper()
+            if up.startswith("ADMIN STEPS"):
+                active_section = "admin"
+                continue
+            if up.startswith("USER SELF-SERVICE STEPS"):
+                active_section = "user"
+                continue
+
+            # Remove leading numbers (1., 2., etc.) - <ol> adds them automatically
+            clean = re.sub(r'^\d+\.\s*', '', s)
+            if active_section == "user":
+                user_items.append(clean)
             else:
-                # Remove leading numbers (1., 2., etc.) - <ol> adds them automatically
-                current_items.append(re.sub(r'^\d+\.\s*', '', s))
-        if current_items:
-            html_parts.append("<ol>" + "".join(f"<li>{i}</li>" for i in current_items) + "</ol>")
+                admin_items.append(clean)
+
+        # Always keep an admin path available for quick direct resolution by admins.
+        if self_resolvable and not admin_items:
+            admin_items = [
+                "Review the request context and validate required fields/metadata.",
+                "If needed, perform the update on behalf of the user and confirm completion.",
+            ]
+
+        html_parts = ["<br/><b>ADMIN STEPS:</b>"]
+        if admin_items:
+            html_parts.append("<ol>" + "".join(f"<li>{i}</li>" for i in admin_items) + "</ol>")
+
+        if self_resolvable and user_items:
+            msg = "User can also self-resolve this. Share the steps below with the user."
+            html_parts.append(f"<br/>{msg}")
+            html_parts.append("<br/><b>USER SELF-SERVICE STEPS:</b>")
+            html_parts.append("<ol>" + "".join(f"<li>{i}</li>" for i in user_items) + "</ol>")
+
         html_parts.append("<i>[AI-Generated Suggestions - Please verify before taking action]</i>")
         return "".join(html_parts)
 

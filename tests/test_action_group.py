@@ -111,6 +111,33 @@ class TestSearchSimilarCases:
             result = action_handler.search_similar_cases({"keywords": "Test", "max_results": "10"})
         assert result["cases"][0]["case_number"] == "00100001"
 
+    def test_keyword_fallback_to_reason_tool_when_zero_results(self, action_handler, sample_similar_cases_records):
+        mock_sf = MagicMock()
+        # 1) strict keyword query returns none, 2) fallback query returns records, 3) chatter query
+        mock_sf.query.side_effect = [
+            {"records": [], "totalSize": 0},
+            sample_similar_cases_records,
+            {"records": []},
+        ]
+        with patch.object(action_handler, "get_sf", return_value=mock_sf):
+            result = action_handler.search_similar_cases(
+                {
+                    "keywords": "CODX E2E Inttest 20260217131758",
+                    "support_reason": "Opportunity - Add/Change Team Member or Split",
+                    "case_tool": "Salesforce",
+                    "max_results": "10",
+                }
+            )
+
+        assert result["total_found"] == 2
+        assert mock_sf.query.call_count == 3
+        first_query = mock_sf.query.call_args_list[0].args[0]
+        second_query = mock_sf.query.call_args_list[1].args[0]
+        assert "Subject LIKE" in first_query
+        assert "Subject LIKE" not in second_query
+        assert "Support_Reason__c = 'Opportunity - Add/Change Team Member or Split'" in second_query
+        assert "Tool__c = 'Salesforce'" in second_query
+
 
 # =============================================================================
 # SEARCH KNOWLEDGE ARTICLES

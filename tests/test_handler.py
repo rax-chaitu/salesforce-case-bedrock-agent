@@ -168,6 +168,22 @@ class TestAnalyzeCase:
         steps_text = " ".join(str(s) for s in result.get("steps", []))
         assert "submit the case" not in steps_text.lower()
 
+    def test_only_circular_user_steps_forces_not_self_resolvable(
+        self,
+        case_handler,
+        sample_case_data,
+        sample_agent_response_only_circular_user_steps,
+        sample_kav_results,
+    ):
+        result = self._run(
+            case_handler,
+            sample_case_data,
+            sample_agent_response_only_circular_user_steps,
+            sample_kav_results,
+        )
+        assert result["self_resolvable"] is False
+        assert "USER SELF-SERVICE STEPS:" not in result.get("steps", [])
+
     def test_guardrail_blocked(self, case_handler, sample_case_data):
         result = self._run(case_handler, sample_case_data, "I cannot provide that information due to safety.")
         assert result.get("guardrail_blocked") is True
@@ -187,6 +203,29 @@ class TestAnalyzeCase:
         assert all(t == t.lower() for t in result["_real_ka_titles"])
         for url in result["_ka_url_map"].values():
             assert "-" in url
+
+    def test_deterministic_ka_query_escapes_apostrophes(
+        self,
+        case_handler,
+        sample_case_data,
+        sample_agent_response,
+    ):
+        case_data = dict(sample_case_data)
+        case_data["Subject"] = "Need O'Brien access for partner workflow"
+
+        mock_sf = MagicMock()
+        mock_sf.is_configured.return_value = True
+        mock_sf.query.return_value = {"records": [], "totalSize": 0}
+
+        mock_bedrock = MagicMock()
+        mock_bedrock.invoke_agent.return_value = sample_agent_response
+
+        with patch.object(case_handler, "get_salesforce_client", return_value=mock_sf), \
+             patch.object(case_handler, "get_bedrock_client", return_value=mock_bedrock):
+            case_handler.analyze_case("500Ox00000gTHmrIAG", case_data)
+
+        deterministic_query = mock_sf.query.call_args_list[0].args[0]
+        assert "O\\'Brien" in deterministic_query
 
     def test_sf_not_configured(self, case_handler, sample_case_data, sample_agent_response):
         mock_sf = MagicMock()

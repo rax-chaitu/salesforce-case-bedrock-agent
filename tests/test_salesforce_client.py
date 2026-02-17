@@ -7,7 +7,7 @@ import json
 import re
 import pytest
 from unittest.mock import MagicMock
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 # =============================================================================
@@ -70,14 +70,27 @@ class TestFormatSteps:
 
     def test_sections_and_ol(self, sf_client_module, mock_sf_connection):
         html = self._client(sf_client_module, mock_sf_connection)._format_steps(
-            ["ADMIN STEPS:", "1. Do admin", "USER SELF-SERVICE STEPS:", "1. Do user"])
+            ["ADMIN STEPS:", "1. Do admin", "USER SELF-SERVICE STEPS:", "1. Do user"],
+            self_resolvable=True,
+        )
         assert "<b>ADMIN STEPS:</b>" in html
         assert "<b>USER SELF-SERVICE STEPS:</b>" in html
+        assert "User can also self-resolve this." in html
         assert "<ol>" in html
 
     def test_strips_numbers(self, sf_client_module, mock_sf_connection):
         html = self._client(sf_client_module, mock_sf_connection)._format_steps(["ADMIN STEPS:", "1. First"])
         assert "<li>First</li>" in html
+
+    def test_user_only_steps_get_admin_path(self, sf_client_module, mock_sf_connection):
+        html = self._client(sf_client_module, mock_sf_connection)._format_steps(
+            ["USER SELF-SERVICE STEPS:", "1. Do user action"],
+            self_resolvable=True,
+        )
+        assert "<b>ADMIN STEPS:</b>" in html
+        assert "Review the request context and validate required fields/metadata." in html
+        assert "No admin action is needed" not in html
+        assert "<b>USER SELF-SERVICE STEPS:</b>" in html
 
     def test_empty(self, sf_client_module, mock_sf_connection):
         assert self._client(sf_client_module, mock_sf_connection)._format_steps([]) == ""
@@ -133,7 +146,7 @@ class TestUpdateCase:
 
 class TestIsAlreadyAnalyzed:
     def test_today(self, sf_client_module, mock_sf_connection):
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         mock_sf_connection.query.return_value = {"records": [
             {"AI_Analysis_Status__c": "Completed", "AI_Analyzed_Date__c": f"{today}T10:00:00Z"}
         ]}

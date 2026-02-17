@@ -41,14 +41,14 @@
 
 ## 🔴 High Priority
 
-- [ ] **Strip "create a case" user_steps in post-processing** — Nova Pro ignores prompt instruction not to suggest creating a case as self-service. Filter out user_steps that contain "create a case/submit a case" and hide USER SELF-SERVICE section entirely if all steps are case-submission
+- [x] **Strip "create a case" user_steps in post-processing** — Completed (2026-02-17): post-processing now removes circular case-submission user steps and suppresses USER SELF-SERVICE section when filtered result is empty
 - [x] **KB Sources hyperlinks fixed** — Query actual `UrlName` from SF KnowledgeArticleVersion, use pre-fetched URL map for hyperlinks (no more broken smart-quote URLs)
 - [x] **Tool__c added to similar cases AND filter** — searchSimilarCases SOQL includes Tool__c as AND condition
 - [x] **Code cleanup** — Duplicate Status bug fix, KB scoring refactor, guardrail cache, error logging, variable shadowing, contextlib removal, Optional→union syntax
 - [x] **Test suite** — 66 tests (handler, salesforce_client, action_group) all passing
-- [ ] **Re-add closed cases to KB** — AppFlow sync removed, only SOPs remain. `similar_cases` always empty until case data is re-ingested
-- [ ] **AppFlow field optimization** — Select only needed fields (CaseNumber, Subject, Description, Close_Codes__c, etc.) instead of all 177
-- [ ] **Transformation Lambda** — Convert AppFlow JSON → structured text for better KB chunking
+- [x] **Re-add closed cases to KB** — Not needed by design (2026-02-17): similar-case retrieval is handled via Salesforce action groups, not KB case ingestion
+- [x] **AppFlow field optimization** — Not needed by design (2026-02-17): AppFlow closed-case pipeline is not used for agent similar-case retrieval
+- [x] **Transformation Lambda** — Not needed by design (2026-02-17): no AppFlow JSON→KB case transformation path required
 
 ---
 
@@ -58,6 +58,7 @@
 - [ ] **Metadata filtering** — Add Category, Priority, Tool filters to KB queries
 - [ ] **Delete old `Agent_Analysis_Status__c` field** — Replaced by `AI_Analysis_Status__c`, migrate data first
 - [ ] **Salesforce field population** — Ensure Case_Type__c, Case_Closure_Notes__c filled consistently
+- [ ] **API Gateway prod cutover decision** — During production deployment, either disable API Gateway entirely (event-driven only) or keep it with explicit hardening/ownership (IAM policy, usage plan/key strategy, monitoring, docs)
 
 ---
 

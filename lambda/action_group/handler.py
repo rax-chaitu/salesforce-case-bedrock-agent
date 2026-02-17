@@ -89,7 +89,7 @@ def search_similar_cases(params):
     logger.info(json.dumps({"event": "search_params", "keywords": keywords, "support_reason": support_reason, "case_tool": tool, "max_results": max_results}))
 
     sf = get_sf()
-    conditions = ["Status IN ('Closed', 'Closed Resolved')", "ClosedDate != null"]
+    base_conditions = ["Status IN ('Closed', 'Closed Resolved')", "ClosedDate != null"]
 
     # Build WHERE clause: Support_Reason__c AND keywords AND Tool__c
     keyword_conditions = []
@@ -97,6 +97,7 @@ def search_similar_cases(params):
         safe = word.replace("'", "\\'")
         keyword_conditions.append(f"Subject LIKE '%{safe}%'")
 
+    conditions = list(base_conditions)
     if support_reason:
         safe_reason = support_reason.replace("'", "\\'")
         conditions.append(f"Support_Reason__c = '{safe_reason}'")
@@ -120,20 +121,39 @@ def search_similar_cases(params):
     #      ensures we return cases with actual resolution details.
     # ============================================================================
     fetch_limit = max_results * 3
-    query = (
-        f"SELECT Id, CaseNumber, Subject, Support_Reason__c, Description, "
-        f"Case_Closure_Notes__c, ClosedDate, Close_Codes__c, Close_Reason__c, "
-        f"Root_Cause_of_Inquiry__c, Tool__c, Department__c, Segment__c, "
-        f"DP_Resolution__c, Admin_Notes__c, "
-        f"(SELECT CommentBody FROM CaseComments ORDER BY CreatedDate DESC LIMIT 3), "
-        f"(SELECT Subject, TextBody FROM EmailMessages ORDER BY CreatedDate DESC LIMIT 3) "
-        f"FROM Case WHERE {where} "
-        f"ORDER BY ClosedDate DESC NULLS LAST LIMIT {fetch_limit}"
-    )
+    def build_query(where_clause):
+        return (
+            f"SELECT Id, CaseNumber, Subject, Support_Reason__c, Description, "
+            f"Case_Closure_Notes__c, ClosedDate, Close_Codes__c, Close_Reason__c, "
+            f"Root_Cause_of_Inquiry__c, Tool__c, Department__c, Segment__c, "
+            f"DP_Resolution__c, Admin_Notes__c, "
+            f"(SELECT CommentBody FROM CaseComments ORDER BY CreatedDate DESC LIMIT 3), "
+            f"(SELECT Subject, TextBody FROM EmailMessages ORDER BY CreatedDate DESC LIMIT 3) "
+            f"FROM Case WHERE {where_clause} "
+            f"ORDER BY ClosedDate DESC NULLS LAST LIMIT {fetch_limit}"
+        )
+
+    query = build_query(where)
 
     logger.info(json.dumps({"event": "soql_query", "query": query}))
     results = sf.query(query)
     all_records = results.get("records", [])
+
+    # If keyword narrowing is too strict, retry once using support_reason/tool only.
+    if not all_records and keyword_conditions and (support_reason or tool):
+        fallback_conditions = list(base_conditions)
+        if support_reason:
+            safe_reason = support_reason.replace("'", "\\'")
+            fallback_conditions.append(f"Support_Reason__c = '{safe_reason}'")
+        if tool:
+            safe_tool = tool.replace("'", "\\'")
+            fallback_conditions.append(f"Tool__c = '{safe_tool}'")
+
+        fallback_where = " AND ".join(fallback_conditions)
+        fallback_query = build_query(fallback_where)
+        logger.info(json.dumps({"event": "soql_query_fallback", "query": fallback_query}))
+        results = sf.query(fallback_query)
+        all_records = results.get("records", [])
     
     # ============================================================================
     # CONTENT-PRIORITIZED RANKING

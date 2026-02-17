@@ -149,6 +149,18 @@ def sample_agent_response_circular_steps():
 
 
 @pytest.fixture
+def sample_agent_response_only_circular_user_steps():
+    return json.dumps({
+        "summary": "Case submission loop.", "category": "Other", "severity": "Low",
+        "root_cause": "Model suggested circular path.", "admin_steps": ["1. Review request"],
+        "user_steps": ["1. Create a case", "2. Submit the case to admin"],
+        "similar_cases": [], "kb_articles": [],
+        "estimated_resolution": "15 min", "recommendation": "Admin review.",
+        "self_resolvable": True, "ai_disclaimer": "AI.",
+    })
+
+
+@pytest.fixture
 def sample_kav_results():
     return {
         "records": [

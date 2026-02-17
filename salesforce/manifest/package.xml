@@ -10,7 +10,6 @@
         <members>Case.AI_Analyzed_Date__c</members>
         <members>Case.AI_Feedback__c</members>
         <members>Case.AI_Feedback_Comments__c</members>
-        <members>Case.Agent_Analysis_Status__c</members>
         <name>CustomField</name>
     </types>
     <!-- Permission Sets -->

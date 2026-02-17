@@ -156,6 +156,7 @@ resource "aws_bedrockagent_agent" "salesforce_agent" {
     - Account issues → search "account", "company", "DDI", "GAR"
     - Integration → search the specific system: "QM", "Raptor", "JIRA", "WorkSpan"
     Only include KB articles in your response that are RELEVANT to the case topic. Do NOT include unrelated articles.
+    For kb_articles, include a title only when it matches at least two non-generic business terms from the case context (Subject + Support_Reason + Description). Do not include articles based only on generic words like "opportunity", "request", "how", "when", or "process".
 
     ## ANALYSIS APPROACH
     1. **Identify Request Type**: Is this an Opportunity change? User access? Data update? Integration issue?
@@ -170,7 +171,7 @@ resource "aws_bedrockagent_agent" "salesforce_agent" {
     
     6. **Build Your Response from SOP KB Content**:
        - Your response MUST be based on the SOP Knowledge Base retrieval results. These contain the actual admin procedures.
-       - CRITICAL: Extract and include the ACTUAL steps, processes, and instructions FROM the SOP content in your "steps" array. Do NOT just say "Follow the KB article" or "Refer to the SOP" — that is useless. The admin needs the actual steps written out.
+       - CRITICAL: Extract and include the ACTUAL steps, processes, and instructions FROM the SOP content in your "admin_steps" and "user_steps" arrays. Do NOT just say "Follow the KB article" or "Refer to the SOP" — that is useless. The admin needs the actual steps written out.
        - BAD: "Step 1: Follow the process in KB article 'Submit an Opportunity Team Member Request'"
        - GOOD: "Step 1: Navigate to the Opportunity record. Step 2: Click the Opportunity Team related list. Step 3: Click Add Team Member. Step 4: Select the user and set role to Client Partner. Step 5: Save."
        - Include specific tool names, URLs, field names, and click paths from the SOP content.
@@ -181,7 +182,7 @@ resource "aws_bedrockagent_agent" "salesforce_agent" {
        - If KB search returns no matches, state that no specific KB article was found.
        - Provide best-effort guidance based on your instructions.
     
-    8. **Provide Actionable Guidance**: Your steps must be specific enough that an admin can execute them WITHOUT reading the KB article. Include navigation paths, field names, button names, and verification steps.
+    8. **Provide Actionable Guidance**: Your admin/user steps must be specific enough that an admin can execute them WITHOUT reading the KB article. Include navigation paths, field names, button names, and verification steps.
 
     ## RESPONSE FORMAT (JSON)
     CRITICAL: Your response must be ONLY a valid JSON object. No text before or after. No markdown code blocks. No explanations outside the JSON. Start with { and end with }.
@@ -190,11 +191,8 @@ resource "aws_bedrockagent_agent" "salesforce_agent" {
       "category": "Opportunity | User_Access | Account | Data_Update | Pricing | Configuration | Integration | Reporting | Other",
       "severity": "Critical | High | Medium | Low",
       "root_cause": "What triggered this request or underlying issue",
-      "steps": [
-        "Step 1: Specific admin action with navigation path",
-        "Step 2: Verification step with field names",
-        "Step 3: Communication/follow-up"
-      ],
+      "admin_steps": ["Step 1: Specific admin action with navigation path", "Step 2: Verification step with field names", "Step 3: Communication/follow-up"],
+      "user_steps": ["Step 1: End-user workflow step from SOP/KA (if applicable)", "Step 2: End-user click path", "Step 3: End-user submit/verification step"],
       "self_resolvable": true/false,
       "similar_cases": ["case_number_1", "case_number_2", "case_number_3"],
       "kb_articles": ["Exact SOP document name from KB"],
@@ -231,10 +229,11 @@ resource "aws_bedrockagent_agent" "salesforce_agent" {
 
     ## QUALITY REQUIREMENTS
     - **summary**: 2-3 sentences minimum. Explain WHAT and WHY, not just echo subject.
-    - **steps**: At least 3 specific actions with navigation paths and field names. If KB articles describe a process, extract those exact steps. Always include a verification step.
+    - **admin_steps**: At least 3 specific admin actions with navigation paths and field names. Always include a verification step.
+    - **user_steps**: If SOP/KA has a user workflow, provide 3-5 concrete end-user steps. If no user workflow exists, return [].
     - **recommendation**: Be specific about WHO should do WHAT. If the KB describes a self-service tool or process, recommend that instead of defaulting to "Admin action required". NEVER say "Follow the steps above" or "See steps below" — the recommendation field displays separately from steps in Salesforce. Instead, summarize the action directly, e.g. "Admin to add John Smith as Client Partner on the Opportunity Team for Opp 4601706."
     - **similar_cases**: Include ALL case numbers returned by searchSimilarCases. Never return an empty array if the action returned results.
-    - **kb_articles**: List the exact SOP document names from KB retrieval results. If none found, return empty array.
+    - **kb_articles**: List only exact and relevant SOP/KA titles from retrieval results. Do not include marginal matches that are off-topic to the request type.
 
     ## EXAMPLES
 
@@ -246,7 +245,8 @@ resource "aws_bedrockagent_agent" "salesforce_agent" {
     {
       "summary": "Request to update Opportunity amount to $56,620.73 MRR to match the contract value. The Amount field is controlled by different fields depending on the Opportunity Record Type and Type. Admin needs to determine the correct field to update based on the opp configuration.",
       "category": "Opportunity",
-      "steps": ["1. Navigate to the Opportunity record and check the Record Type (US Cloud/INTL Cloud vs US Dedicated/INTL Dedicated) and Type field", "2. If Type is NOT Professional Services: The amount is controlled by QM quote lines — the sales rep should update the amount directly in QM, not in Salesforce", "3. If Type IS Professional Services: Update the ProServ Fees (One-Time) field with the contract total — the ProServ Fees (MRR) will auto-calculate as 10% of that amount", "4. For Dedicated opps (non-ProServ): Check Hosting Fee, VM Fees, and Setup Fee fields — these are controlled by QM quote lines", "5. Verify the Amount field reflects $56,620.73 MRR after the update", "6. Add a case comment confirming the change and notify the requestor"],
+      "admin_steps": ["1. Navigate to the Opportunity record and check the Record Type (US Cloud/INTL Cloud vs US Dedicated/INTL Dedicated) and Type field", "2. If Type is NOT Professional Services: The amount is controlled by QM quote lines — the sales rep should update the amount directly in QM, not in Salesforce", "3. If Type IS Professional Services: Update the ProServ Fees (One-Time) field with the contract total — the ProServ Fees (MRR) will auto-calculate as 10% of that amount", "4. For Dedicated opps (non-ProServ): Check Hosting Fee, VM Fees, and Setup Fee fields — these are controlled by QM quote lines", "5. Verify the Amount field reflects $56,620.73 MRR after the update", "6. Add a case comment confirming the change and notify the requestor"],
+      "user_steps": [],
       "self_resolvable": false,
       "similar_cases": ["00144984", "00144944", "00144827", "00144760", "00144971"],
       "kb_articles": ["Amount - Opportunities SOP", "Optimizer+ Amount Guidelines Compact Version SOP"],
@@ -263,7 +263,8 @@ resource "aws_bedrockagent_agent" "salesforce_agent" {
     {
       "summary": "Request to debook an Opportunity. A debook occurs when a customer downgrades services or did not achieve the stated contract amount. Can be partial (portion of contract) or full (entire contract). CVP team must be notified to update billing.",
       "category": "Opportunity",
-      "steps": ["1. Verify the debook reason: customer went offline within 90 days, non-payment, contract not CVP verified in 100 days, or phased deployment not properly identified", "2. Contact CVP team (primary: Beth Scheidt in Customer Success, or Valerie Mauro/Business Manager) to update billing", "3. Process the debook in Salesforce — debooks are applied against the month the deal was originally booked", "4. If partial debook: update the Opportunity amount to reflect the reduced contract value", "5. If full debook: update the Opportunity stage accordingly", "6. Notify the requestor and CSM of the completed debook"],
+      "admin_steps": ["1. Verify the debook reason: customer went offline within 90 days, non-payment, contract not CVP verified in 100 days, or phased deployment not properly identified", "2. Contact CVP team (primary: Beth Scheidt in Customer Success, or Valerie Mauro/Business Manager) to update billing", "3. Process the debook in Salesforce — debooks are applied against the month the deal was originally booked", "4. If partial debook: update the Opportunity amount to reflect the reduced contract value", "5. If full debook: update the Opportunity stage accordingly", "6. Notify the requestor and CSM of the completed debook"],
+      "user_steps": [],
       "similar_cases": ["00145006", "00145007", "00145002", "00145001", "00145005"],
       "kb_articles": ["Debook SOP"],
       "escalation_needed": true,
@@ -309,8 +310,9 @@ resource "aws_bedrockagent_agent" "salesforce_agent" {
     7. If the KB describes a self-service process or tool for the request type, do NOT default to "Admin action required". Instead, guide the user to the self-service option with the specific steps from the KB article.
     8. Include specific names of tools, processes, and policies from KB articles in your steps and recommendation.
     9. Never suggest users do admin-only actions (see USER ACCESS LIMITATIONS)
-    10. Default to self_resolvable: false unless user clearly owns the record AND has edit access
-    11. NEVER fabricate or hallucinate case numbers or KB articles. If no similar cases are found, return empty arrays: "similar_cases": [], "kb_articles": []. Only include real case numbers and articles retrieved from the KB.
+    10. If any retrieved SOP/KA includes an end-user workflow (for example request form, team member request, submit request), set self_resolvable: true and provide concrete user_steps.
+    11. If user_steps is empty, self_resolvable must be false.
+    12. NEVER fabricate or hallucinate case numbers or KB articles. If no similar cases are found, return empty arrays: "similar_cases": [], "kb_articles": []. Only include real case numbers and articles retrieved from the KB.
   EOT
 
   idle_session_ttl_in_seconds = var.agent_session_ttl
@@ -487,5 +489,3 @@ resource "aws_iam_role_policy" "bedrock_agent_guardrail_policy" {
     }]
   })
 }
-
-

@@ -19,7 +19,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from bedrock_client import BedrockAgentClient
@@ -55,7 +55,7 @@ class StructuredLogger:
         self.logger.setLevel(logging.INFO)
 
     def _log(self, level: str, event: str, **kwargs: Any) -> None:
-        msg = {"event": event, "timestamp": datetime.utcnow().isoformat(), **kwargs}
+        msg = {"event": event, "timestamp": datetime.now(timezone.utc).isoformat(), **kwargs}
         getattr(self.logger, level)(json.dumps(msg))
 
     def info(self, event: str, **kwargs: Any) -> None:
@@ -278,11 +278,16 @@ def analyze_case(case_id: str, case_data: dict) -> dict:
     try:
         sf = get_salesforce_client()
         if sf.is_configured():
-            # Extract words > 3 chars from subject + support_reason + tool
+            # Extract words > 3 chars from subject + support_reason + tool.
+            # Keep apostrophes for names like O'Brien, then escape for SOQL.
             search_words = set()
             for text in [subject, support_reason, tool]:
-                search_words.update(w for w in re.findall(r'\w+', text.replace("-", " ").replace("/", " ")) if len(w) > 3)
-            like_clauses = [f"Title LIKE '%{w}%'" for w in list(search_words)[:8]]
+                normalized = text.replace("-", " ").replace("/", " ")
+                tokens = re.findall(r"[A-Za-z0-9']+", normalized)
+                search_words.update(w for w in tokens if len(w.replace("'", "")) > 3)
+
+            safe_words = [w.replace("'", "\\'") for w in sorted(search_words)[:8]]
+            like_clauses = [f"Title LIKE '%{w}%'" for w in safe_words]
             if like_clauses:
                 kav_query = (
                     f"SELECT Title, UrlName FROM KnowledgeArticleVersion "
@@ -309,13 +314,19 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
 - "category": Opportunity | User_Access | Account | Data_Update | Pricing | Configuration | Integration | Other
 - "severity": Critical | High | Medium | Low
 - "root_cause": what triggered this request
-- "admin_steps": steps a Salesforce admin takes to resolve this (navigation paths, buttons, fields)
+- "admin_steps": REQUIRED. Steps a Salesforce admin takes to resolve this (navigation paths, buttons, fields, metadata/config updates when applicable). These should be an admin-capable resolution path and not just a copy of user steps.
 - "user_steps": steps the end user can do themselves based on the SOP Knowledge Base (e.g. submit request, click Request Access, navigate to record). NEVER include "create a case" or "submit a case" — the case already exists. If there are no real self-service steps, return an empty array [].
 - "similar_cases": case numbers from searchSimilarCases
 - "kb_articles": SOP document names and Knowledge Article titles
 - "estimated_resolution": time estimate with brief explanation
 - "recommendation": specific action needed
-- "self_resolvable": true if user can self-service, false if admin-only"""
+- "self_resolvable": true if user can self-service, false if admin-only
+
+Important behavior:
+- If "self_resolvable" is true, still provide meaningful "admin_steps" (admin may choose fast direct resolution).
+- Keep "admin_steps" and "user_steps" role-specific. Do not collapse both into the same instructions unless truly unavoidable.
+- If SOP/Knowledge guidance includes a user request workflow (for example submit request, request form, or team member request), you MUST set "self_resolvable": true and return 3-5 concrete "user_steps". Do not leave "user_steps" empty in that case.
+- When "user_steps" are provided, include only actionable end-user clicks/navigation and never include "create a case" or "submit a case" wording."""
 
     session_id = f"case-{case_id}-{uuid.uuid4().hex[:8]}"
 
@@ -331,7 +342,7 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
     response_lower = response_text.lower()
     if any(phrase.lower() in response_lower for phrase in guardrail_phrases):
         logger.warning(f"Guardrail blocked agent output for case {case_id}", response_preview=response_text[:300])
-        return {
+        blocked_analysis = {
             "summary": (
                 "AI analysis was partially blocked by content safety guardrails. "
                 "The case may contain content that triggered automated filtering. "
@@ -344,8 +355,10 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
             "kb_articles": [],
             "recommendation": "Manual review required — guardrail content filter triggered on agent output.",
             "guardrail_blocked": True,
-            "analyzed_date": datetime.utcnow().isoformat(),
+            "analyzed_date": datetime.now(timezone.utc).isoformat(),
         }
+        emit_quality_telemetry(case_id=case_id, analysis=blocked_analysis, support_reason=support_reason, tool=tool)
+        return blocked_analysis
 
     # Parse JSON from response (agent should return structured JSON)
     try:
@@ -469,8 +482,8 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
             merged.append("USER SELF-SERVICE STEPS:")
             merged.extend(str(s) for s in user_steps)
         analysis["steps"] = merged
-        if user_steps:
-            analysis["self_resolvable"] = True
+        # Final truth comes from post-filtered user steps, not model guess.
+        analysis["self_resolvable"] = bool(user_steps)
     elif existing_steps:
         # Agent didn't use separate fields — check if user steps are missing
         steps_text = " ".join(str(s) for s in existing_steps).lower()
@@ -481,7 +494,7 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
                 ["USER SELF-SERVICE: Check the related Knowledge Article for self-service options."]
             )
 
-    analysis["analyzed_date"] = datetime.utcnow().isoformat()
+    analysis["analyzed_date"] = datetime.now(timezone.utc).isoformat()
     analysis["_real_ka_titles"] = [t.lower() for t in ka_titles]  # for hyperlink check (lowercased)
     analysis["_ka_url_map"] = ka_url_map  # {title_lower: urlname} for hyperlinks
 
@@ -494,7 +507,44 @@ ALL of these JSON fields are REQUIRED in your response — do not skip any:
                  "has_category": bool(analysis.get("category")),
                  "has_severity": bool(analysis.get("severity"))})
 
+    emit_quality_telemetry(case_id=case_id, analysis=analysis, support_reason=support_reason, tool=tool)
+
     return analysis
+
+
+def emit_quality_telemetry(case_id: str, analysis: dict, support_reason: str = "", tool: str = "") -> None:
+    """Emit stable quality telemetry fields for CloudWatch metric filters/dashboards."""
+    similar_cases = analysis.get("similar_cases", [])
+    kb_articles = analysis.get("kb_articles", [])
+    admin_steps = analysis.get("admin_steps", [])
+    user_steps = analysis.get("user_steps", [])
+    merged_steps = analysis.get("steps", [])
+
+    similar_cases_count = len(similar_cases) if isinstance(similar_cases, list) else 0
+    kb_articles_count = len(kb_articles) if isinstance(kb_articles, list) else 0
+    guardrail_blocked = bool(analysis.get("guardrail_blocked"))
+
+    # Heuristic: if we expected similar cases context but got none, tool call may have been skipped/failed.
+    possible_tool_call_missing = bool(
+        not guardrail_blocked
+        and similar_cases_count == 0
+        and (support_reason or tool)
+    )
+
+    logger.info(
+        "quality_metrics",
+        case_id=case_id,
+        guardrail_blocked=guardrail_blocked,
+        similar_cases_count=similar_cases_count,
+        similar_cases_empty=similar_cases_count == 0,
+        kb_articles_count=kb_articles_count,
+        kb_articles_empty=kb_articles_count == 0,
+        possible_tool_call_missing=possible_tool_call_missing,
+        has_admin_steps=bool(admin_steps),
+        has_user_steps=bool(user_steps),
+        has_steps=bool(merged_steps),
+        self_resolvable=bool(analysis.get("self_resolvable", False)),
+    )
 
 
 # =============================================================================
@@ -586,7 +636,7 @@ def handle_health(origin: str = "") -> dict:
         "service": "sf-case-processor",
         "agent_id": os.environ.get("BEDROCK_AGENT_ID"),
         "salesforce_configured": salesforce.is_configured(),
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     if salesforce.is_configured():
         sf_status = salesforce.check_connection()
@@ -618,7 +668,7 @@ def handle_agent_invoke(request_data: dict, origin: str = "") -> dict:
             "success": True,
             "response": result,
             "session_id": session_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         },
         origin,
     )
@@ -660,7 +710,7 @@ def handle_case_analyze(request_data: dict, origin: str = "") -> dict:
                 "priority": request_data.get("priority", "Medium"),
             },
             "analysis": analysis,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         },
         origin,
     )
@@ -688,7 +738,7 @@ def handle_kb_search(request_data: dict, origin: str = "") -> dict:
             "query": query,
             "results": results,
             "result_count": len(results),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         },
         origin,
     )
